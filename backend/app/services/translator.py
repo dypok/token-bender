@@ -1,6 +1,7 @@
 import httpx
 import json
 import time
+import asyncio
 from deep_translator import GoogleTranslator
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL, DEEPL_BASE_URL
 
@@ -12,9 +13,12 @@ async def is_ollama_online() -> bool:
     now = time.time()
     if _ollama_cache["available"] is not None and (now - _ollama_cache["last_checked"]) < 15:
         return _ollama_cache["available"]
+    
+    _ollama_cache["available"] = False
+    _ollama_cache["last_checked"] = now
+    
     online = await check_ollama_status()
     _ollama_cache["available"] = online
-    _ollama_cache["last_checked"] = now
     return online
 
 
@@ -70,7 +74,9 @@ async def translate_deepl(text: str, api_key: str, target_lang: str = "EN", sour
 
 async def translate_fallback(text: str, target_lang: str = "en", source_lang: str = "auto") -> str:
     try:
-        result = GoogleTranslator(source=source_lang, target=target_lang).translate(text)
+        result = await asyncio.to_thread(
+            GoogleTranslator(source=source_lang, target=target_lang).translate, text
+        )
         return result
     except Exception:
         return text
@@ -103,7 +109,7 @@ async def translate(text: str, engine: str, target_lang: str = "en", source_lang
 
 async def check_ollama_status() -> bool:
     try:
-        async with httpx.AsyncClient(timeout=1.5) as client:
+        async with httpx.AsyncClient(timeout=0.5) as client:
             resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
             return resp.status_code == 200
     except Exception:
