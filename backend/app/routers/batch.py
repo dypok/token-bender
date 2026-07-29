@@ -140,6 +140,8 @@ async def batch_progress(task_id: str):
 
 
 async def _run_batch_background(task_id: str, file: UploadFile, optent_tokens: bool, engine: str, deepl_api_key: str):
+    from datetime import datetime
+    add_log(task_id, f"Inicio: {datetime.now().strftime('%H:%M:%S')}")
     add_log(task_id, f"Iniciando procesamiento batch (engine={engine})...")
     add_log(task_id, f"Leyendo archivo: {file.filename}")
     try:
@@ -152,34 +154,42 @@ async def _run_batch_background(task_id: str, file: UploadFile, optent_tokens: b
             if prod_col:
                 add_log(task_id, f"Columna producto detectada: '{prod_col}' - agrupando...")
                 groups = df.groupby(prod_col)
-                add_log(task_id, f"Total grupos: {len(groups)}")
-
-                group_tasks = []
+                group_list = []
                 for prod_name, group_df in groups:
                     texts = [str(t) if pd.notna(t) else "" for t in group_df[text_col]]
                     texts = [t.strip() for t in texts if t.strip()]
                     if texts:
-                        group_tasks.append((str(prod_name), texts))
-                        add_log(task_id, f"  Grupo '{prod_name}': {len(texts)} reseñas")
+                        group_list.append((str(prod_name), texts))
+                total_groups = len(group_list)
+                add_log(task_id, f"Total grupos: {total_groups}")
+                for prod_name, texts in group_list:
+                    add_log(task_id, f"  Grupo '{prod_name}': {len(texts)} reseñas")
 
-                sem = asyncio.Semaphore(min(GROUP_CONCURRENCY, len(group_tasks)))
-                all_results = []
+                sem = asyncio.Semaphore(min(GROUP_CONCURRENCY, total_groups))
+                completed = 0
+                total_unique = 0
 
                 async def run_group(name: str, texts: list[str]):
+                    nonlocal completed, total_unique
                     async with sem:
                         add_log(task_id, f"  → Procesando grupo '{name}' ({len(texts)} reseñas)...")
                         uniques = list(dict.fromkeys(texts))
-                        add_log(task_id, f"    Textos únicos: {len(uniques)} (dedup ahorra {len(texts) - len(uniques)})")
+                        total_unique += len(uniques)
+                        n_dedup = len(texts) - len(uniques)
+                        if n_dedup:
+                            add_log(task_id, f"    Textos únicos: {len(uniques)} (dedup ahorra {n_dedup})")
                         add_log(task_id, f"    Traduciendo {len(uniques)} textos con Argos...")
                         translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
-                        add_log(task_id, f"    Traducción completada. Clasificando...")
+                        add_log(task_id, f"    Traducción completada ({len(uniques)} textos). Clasificando...")
                         cache = await _build_cache(uniques, translations)
                         items = [_rebuild_item(t, cache) for t in texts]
-                        add_log(task_id, f"  ✓ Grupo '{name}' completado ({len(items)} reseñas)")
+                        completed += 1
+                        add_log(task_id, f"  ✓ Grupo '{name}' completado ({len(items)} reseñas) [{completed}/{total_groups}]")
                         return items
 
-                nested = await asyncio.gather(*[run_group(n, ts) for n, ts in group_tasks])
+                nested = await asyncio.gather(*[run_group(n, ts) for n, ts in group_list])
                 results = [item for batch_list in nested for item in batch_list]
+                add_log(task_id, f"Total textos únicos traducidos: {total_unique}")
             else:
                 add_log(task_id, "Sin columna producto - procesamiento plano...")
                 results = await _process_flat_batch_logged(task_id, df, text_col)
