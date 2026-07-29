@@ -1,5 +1,4 @@
 import os
-import asyncio
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, Header, Form
 from app.models.schemas import (
@@ -10,12 +9,9 @@ from app.models.schemas import (
 from app.services.tokenizer import count_tokens
 from app.services.translator import translate
 from app.services.classifier import classify, classify_combined
-from app.http_pool import get_http
 
 router = APIRouter()
 REVIEWS_10K = 10000
-CONCURRENCY_LIMIT = 5
-semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
 
 @router.post("/api/batch/upload", response_model=BatchUploadResponse)
@@ -27,14 +23,14 @@ async def batch_upload(
 ):
     df = _read_file(file)
     text_col = _detect_text_column(df)
-    texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
-    texts = [t.strip() for t in texts if t.strip()]
-
-    async def process_one(text: str) -> BatchResultItem:
-        async with semaphore:
-            return await _process_review(text, engine, deepl_api_key, optent_tokens)
-
-    results = await asyncio.gather(*[process_one(t) for t in texts])
+    results = []
+    for t in df[text_col]:
+        text_str = str(t) if pd.notna(t) else ""
+        if not text_str.strip():
+            results.append(_empty_item())
+            continue
+        item = await _process_review(text_str, engine, deepl_api_key, optent_tokens)
+        results.append(item)
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
 
@@ -60,14 +56,14 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
 
     df = pd.concat(all_dfs, ignore_index=True)
     text_col = _detect_text_column(df)
-    texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
-    texts = [t.strip() for t in texts if t.strip()]
-
-    async def process_one(text: str) -> BatchResultItem:
-        async with semaphore:
-            return await _process_review(text, req.engine, deepl_api_key, req.optent_tokens)
-
-    results = await asyncio.gather(*[process_one(t) for t in texts])
+    results = []
+    for t in df[text_col]:
+        text_str = str(t) if pd.notna(t) else ""
+        if not text_str.strip():
+            results.append(_empty_item())
+            continue
+        item = await _process_review(text_str, req.engine, deepl_api_key, req.optent_tokens)
+        results.append(item)
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
 
@@ -75,20 +71,22 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
 async def _process_review(text: str, engine: str, deepl_api_key: str, optent_tokens: bool) -> BatchResultItem:
     orig_tokens = count_tokens(text)
 
+    translated = None
+    class_result = None
+
     if engine == "ollama" and optent_tokens:
         combined = await classify_combined(text)
-        if combined and "translation" in combined and combined.get("error_type") and combined.get("component"):
+        if combined and combined.get("translation") and combined.get("error_type") and combined.get("component"):
             translated = combined["translation"]
-            en_tokens = count_tokens(translated)
             class_result = {"error_type": combined["error_type"], "component": combined["component"]}
-            return _make_item(text, translated, orig_tokens, en_tokens, class_result)
 
-    translated, _ = await translate(text, engine, deepl_api_key=deepl_api_key)
+    if translated is None:
+        translated, _ = await translate(text, engine, deepl_api_key=deepl_api_key)
+        text_for_llm = translated if optent_tokens else text
+        cr, _ = await classify(text_for_llm, engine, deepl_api_key)
+        class_result = cr
+
     en_tokens = count_tokens(translated)
-
-    text_for_llm = translated if optent_tokens else text
-    class_result, _ = await classify(text_for_llm, engine, deepl_api_key)
-
     return _make_item(text, translated, orig_tokens, en_tokens, class_result)
 
 
@@ -119,7 +117,7 @@ def _empty_item() -> BatchResultItem:
     )
 
 
-def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict) -> BatchResultItem:
+def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None) -> BatchResultItem:
     cost_es = round((tok_es / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     cost_en = round((tok_en / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     diff = tok_en - tok_es

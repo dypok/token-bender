@@ -50,8 +50,11 @@ export default function ExcelIngest() {
     addLog('Copyright (c) 2009 Microsoft Corporation. Todos los derechos reservados.', 'gray')
     addLog('')
 
-    let total = 0
-    let start = performance.now()
+    const start = performance.now()
+    const timer = setInterval(() => {
+      const secs = Math.round((performance.now() - start) / 1000)
+      addLog(`  ... esperando respuesta del servidor (${secs}s)`, 'gray')
+    }, 5000)
 
     if (mode === 'file') {
       const file = fileRef.current?.files?.[0]
@@ -89,7 +92,9 @@ export default function ExcelIngest() {
         addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
         addLog('')
         addLog('C:\\&gt; Proceso completado.', 'green')
+        clearInterval(timer)
       } catch {
+        clearInterval(timer)
         addLog('ERROR: Fall\u00f3 el procesamiento batch.', 'red')
       }
     } else {
@@ -123,7 +128,9 @@ export default function ExcelIngest() {
         addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
         addLog('')
         addLog('C:\\&gt; Proceso completado.', 'green')
+        clearInterval(timer)
       } catch {
+        clearInterval(timer)
         addLog('ERROR: Fall\u00f3 el procesamiento de la carpeta.', 'red')
       }
     }

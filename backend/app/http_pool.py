@@ -6,7 +6,7 @@ _client: httpx.AsyncClient | None = None
 async def init_pool():
     global _client
     _client = httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0, connect=5.0),
+        timeout=httpx.Timeout(45.0, connect=5.0),
     )
 
 
@@ -18,5 +18,6 @@ async def close_pool():
 
 
 def get_http() -> httpx.AsyncClient:
-    assert _client is not None, "HTTP pool not initialized"
+    if _client is None:
+        raise RuntimeError("HTTP pool not initialized")
     return _client
