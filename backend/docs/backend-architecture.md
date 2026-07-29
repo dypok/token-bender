@@ -85,10 +85,20 @@ Ingesta de un único archivo `.xlsx` con reseñas. Aplica `/api/analyze` fila po
 
 Ingesta por lote: recibe una ruta local de carpeta, consolida todos los `.xlsx` encontrados con `pandas`/`pathlib`, y procesa cada fila.
 
-**Request (ambos batch)**
+**Request (POST /api/batch/upload - Form Data)**
+
+- `file`: Archivo Excel (.xlsx)
+- `optent_tokens`: boolean (por defecto `true`)
+- `engine`: `"ollama" | "deepl"` (por defecto `"ollama"`)
+
+**Request (POST /api/batch/folder - JSON Body)**
 
 ```json
-{ "optimize_tokens": true, "engine": "ollama" }
+{
+  "folder_path": "/ruta/a/la/carpeta",
+  "optent_tokens": true,
+  "engine": "ollama"
+}
 ```
 
 ### 3.7 `POST /api/analyze/projection`
@@ -134,7 +144,7 @@ class AnalyzeResponse(BaseModel):
     original: TokenVariant
     translated: TokenVariant
     spanglish: TokenVariant
-    classification: dict | None = None
+    classification: Classification | None = None
     engine_used: str
 ```
 
@@ -213,7 +223,7 @@ Como analista quiero calcular el ahorro en USD mensual asumiendo $2.50 por mill�
 Como Analista de Datos / Desarrollador quiero un sistema de ingesta que procese un Excel individual o una carpeta completa de Excels con reseñas, aplicando opcionalmente el paso de traducción/optimización vía `/api/analyze`, para extraer el problema técnico principal con flexibilidad de fuente y control de costos.
 
 - **Criterio 1 — Ingesta flexible:** Modo A (archivo único `.xlsx`) y Modo B (carpeta local, consolidando todos los `.xlsx`); debe validar que la columna de reseña se detecte correctamente en ambos modos.
-- **Criterio 2 — Pipeline opcional:** bandera `optimize_tokens: True/False`; si es `True` traduce vía `/api/analyze` antes del LLM principal (`o200k_base`); si es `False` procesa el texto original directo.
+- **Criterio 2 — Pipeline opcional:** bandera `optent_tokens: True/False`; si es `True` traduce antes del LLM principal (`o200k_base`); si es `False` procesa el texto original directo.
 - **Criterio 3 — Impacto económico y salida estructurada:** calcula volumen total de tokens y diferencia de costo ($2.50/millón) para 10,000 reseñas/día comparando directo vs. optimizado; exporta resultados en JSON/Excel limpio (ej. `{"error_type": "crash", "component": "profile_picture_upload"}`).
 - Story Points: 3.
 
