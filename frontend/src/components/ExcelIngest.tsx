@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback } from 'react'
 import { useStore } from '../store/useStore'
-import { uploadExcel, processFolder } from '../api/client'
+import { uploadExcel, processFolder, startBatch, getBatchProgress } from '../api/client'
 import TitleBar from './TitleBar'
 import Button from './Button'
 import ConsoleWindow from './ConsoleWindow'
 import type { ConsoleLine } from './ConsoleWindow'
 import * as XLSX from 'xlsx'
-import type { BatchResult, EconomicSummary } from '../types'
+import type { BatchResult, EconomicSummary, BatchUploadResponse } from '../types'
 
 export default function ExcelIngest() {
   const { engine, deeplApiKey } = useStore()
@@ -51,10 +51,6 @@ export default function ExcelIngest() {
     addLog('')
 
     const start = performance.now()
-    const timer = setInterval(() => {
-      const secs = Math.round((performance.now() - start) / 1000)
-      addLog(`  ... esperando respuesta del servidor (${secs}s)`, 'gray')
-    }, 5000)
 
     if (mode === 'file') {
       const file = fileRef.current?.files?.[0]
@@ -64,39 +60,54 @@ export default function ExcelIngest() {
         return
       }
       addLog(`C:\\&gt; Procesando archivo: ${file.name}`, 'cyan')
-      addLog(`Enviando al servidor para procesamiento batch (${engine})...`)
-      addLog('')
 
       try {
-        const data = await uploadExcel(file, optimize, engine, deeplApiKey)
-        const elapsed = Math.round(performance.now() - start)
-        setResults(data.results)
-        setSummary(data.economic_summary)
-
-        addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
+        const taskId = await startBatch(file, optimize, engine, deeplApiKey)
+        addLog(`Task ID: ${taskId}`)
         addLog('')
-        addLog('--- RESULTADOS ---', 'cyan')
 
-        for (const r of data.results) {
-          const best = r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : '='
-          const err = r.classification?.error_type ?? '\u2014'
-          const comp = r.classification?.component ?? '\u2014'
-          addLog(`  [${r.tokens_original}tok ES / ${r.tokens_en}tok EN] ${best} | error=${err}, componente=${comp}`, 'white')
+        let done = false
+        let resultData: BatchUploadResponse | null = null
+        let lastLogCount = 0
+
+        while (!done) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const progress = await getBatchProgress(taskId)
+          done = progress.done
+          resultData = progress.result
+
+          for (let i = lastLogCount; i < progress.logs.length; i++) {
+            const line = progress.logs[i]
+            const color: ConsoleLine['color'] = line.startsWith('ERROR') ? 'red'
+              : line.includes('✓') ? 'green'
+              : line.includes('→') ? 'yellow'
+              : line.includes('completado') ? 'green'
+              : 'white'
+            addLog(line, color)
+          }
+          lastLogCount = progress.logs.length
         }
 
-        addLog('')
-        addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
-        const s = data.economic_summary
-        addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
-        addLog(`Promedio tokens/rese\u00f1a (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
-        addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
+        if (resultData) {
+          setResults(resultData.results)
+          setSummary(resultData.economic_summary)
+
+          const elapsed = Math.round(performance.now() - start)
+          addLog('')
+          addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
+          addLog('')
+          addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
+          const s = resultData.economic_summary
+          addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
+          addLog(`Promedio tokens/rese\u00f1a (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
+          addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
+        }
         addLog('')
         addLog('C:\\&gt; Proceso completado.', 'green')
-        clearInterval(timer)
       } catch {
-        clearInterval(timer)
         addLog('ERROR: Fall\u00f3 el procesamiento batch.', 'red')
       }
+
     } else {
       if (!folderPath.trim()) {
         addLog('ERROR: No se especific\u00f3 ruta de carpeta.', 'red')
@@ -128,9 +139,7 @@ export default function ExcelIngest() {
         addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
         addLog('')
         addLog('C:\\&gt; Proceso completado.', 'green')
-        clearInterval(timer)
       } catch {
-        clearInterval(timer)
         addLog('ERROR: Fall\u00f3 el procesamiento de la carpeta.', 'red')
       }
     }

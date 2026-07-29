@@ -1,7 +1,9 @@
 import os
 import asyncio
+import json
 import pandas as pd
-from fastapi import APIRouter, UploadFile, File, Header, Form
+from fastapi import APIRouter, UploadFile, File, Header, Form, HTTPException
+from pydantic import BaseModel
 from app.models.schemas import (
     BatchFolderRequest, ProjectionRequest,
     ProjectionResponse, BatchResultItem, BatchUploadResponse,
@@ -11,10 +13,17 @@ from app.services.tokenizer import count_tokens
 from app.services.translator import translate
 from app.services.classifier import classify, classify_combined
 from app.services.argos_translate import batch_translate as argos_batch
+from app.batch_tasks import create_task, add_log, get_logs, set_result, get_result, is_done
 
 router = APIRouter()
 REVIEWS_10K = 10000
 GROUP_CONCURRENCY = 5
+
+
+class ProgressResponse(BaseModel):
+    logs: list[str]
+    done: bool
+    result: BatchUploadResponse | None = None
 
 
 @router.post("/api/batch/upload", response_model=BatchUploadResponse)
@@ -106,6 +115,121 @@ async def _process_with_argos(df: pd.DataFrame, text_col: str, optent_tokens: bo
 
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
+
+
+@router.post("/api/batch/start")
+async def batch_start(
+    file: UploadFile = File(...),
+    optent_tokens: bool = Form(True),
+    engine: str = Form("ollama"),
+    deepl_api_key: str = Header(default=""),
+):
+    task_id = create_task()
+    asyncio.create_task(_run_batch_background(task_id, file, optent_tokens, engine, deepl_api_key))
+    return {"task_id": task_id}
+
+
+@router.get("/api/batch/progress/{task_id}", response_model=ProgressResponse)
+async def batch_progress(task_id: str):
+    result = get_result(task_id)
+    return ProgressResponse(
+        logs=get_logs(task_id),
+        done=is_done(task_id),
+        result=result,
+    )
+
+
+async def _run_batch_background(task_id: str, file: UploadFile, optent_tokens: bool, engine: str, deepl_api_key: str):
+    add_log(task_id, f"Iniciando procesamiento batch (engine={engine})...")
+    add_log(task_id, f"Leyendo archivo: {file.filename}")
+    try:
+        df = _read_file(file)
+        text_col = _detect_text_column(df)
+        add_log(task_id, f"Archivo cargado: {len(df)} filas, columna texto: '{text_col}'")
+
+        if engine == "argos" and text_col is not None:
+            prod_col = _detect_product_column(df)
+            if prod_col:
+                add_log(task_id, f"Columna producto detectada: '{prod_col}' - agrupando...")
+                groups = df.groupby(prod_col)
+                add_log(task_id, f"Total grupos: {len(groups)}")
+
+                group_tasks = []
+                for prod_name, group_df in groups:
+                    texts = [str(t) if pd.notna(t) else "" for t in group_df[text_col]]
+                    texts = [t.strip() for t in texts if t.strip()]
+                    if texts:
+                        group_tasks.append((str(prod_name), texts))
+                        add_log(task_id, f"  Grupo '{prod_name}': {len(texts)} reseñas")
+
+                sem = asyncio.Semaphore(min(GROUP_CONCURRENCY, len(group_tasks)))
+                all_results = []
+
+                async def run_group(name: str, texts: list[str]):
+                    async with sem:
+                        add_log(task_id, f"  → Procesando grupo '{name}' ({len(texts)} reseñas)...")
+                        uniques = list(dict.fromkeys(texts))
+                        add_log(task_id, f"    Textos únicos: {len(uniques)} (dedup ahorra {len(texts) - len(uniques)})")
+                        add_log(task_id, f"    Traduciendo {len(uniques)} textos con Argos...")
+                        translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+                        add_log(task_id, f"    Traducción completada.")
+                        seen = dict(zip(uniques, translations))
+                        items = []
+                        for t in texts:
+                            translated = seen[t]
+                            orig_tokens = count_tokens(t)
+                            en_tokens = count_tokens(translated)
+                            class_result, _ = await classify(t, "google", "")
+                            items.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
+                        add_log(task_id, f"  ✓ Grupo '{name}' completado ({len(items)} reseñas)")
+                        return items
+
+                nested = await asyncio.gather(*[run_group(n, ts) for n, ts in group_tasks])
+                results = [item for batch_list in nested for item in batch_list]
+            else:
+                add_log(task_id, "Sin columna producto - procesamiento plano...")
+                results = await _process_flat_batch_logged(task_id, df, text_col)
+        else:
+            add_log(task_id, f"Procesando {len(df)} reseñas secuencialmente...")
+            results = []
+            for i, t in enumerate(df[text_col]):
+                text_str = str(t) if pd.notna(t) else ""
+                if not text_str.strip():
+                    results.append(_empty_item())
+                    continue
+                if i % 10 == 0:
+                    add_log(task_id, f"  Procesando reseña {i + 1}/{len(df)}...")
+                item = await _process_review(text_str, engine, deepl_api_key, optent_tokens)
+                results.append(item)
+            add_log(task_id, f"Procesamiento completado.")
+
+        summary = _build_summary(results)
+        result = BatchUploadResponse(results=results, economic_summary=summary)
+        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas, ahorro mensual estimado: ${summary.monthly_savings_10k}")
+        add_log(task_id, "Proceso completado.")
+        set_result(task_id, result)
+    except Exception as e:
+        add_log(task_id, f"ERROR: {e}")
+        set_result(task_id, None)
+
+
+async def _process_flat_batch_logged(task_id: str, df, text_col) -> list[BatchResultItem]:
+    texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
+    texts = [t.strip() for t in texts if t.strip()]
+    uniques = list(dict.fromkeys(texts))
+    add_log(task_id, f"Textos únicos: {len(uniques)} de {len(texts)} total (dedup {len(texts) - len(uniques)})")
+    add_log(task_id, f"Traduciendo {len(uniques)} textos con Argos...")
+    translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+    add_log(task_id, f"Traducción completada.")
+    seen = dict(zip(uniques, translations))
+    results = []
+    for i, t in enumerate(texts):
+        translated = seen[t]
+        orig_tokens = count_tokens(t)
+        en_tokens = count_tokens(translated)
+        class_result, _ = await classify(t, "google", "")
+        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
+    return results
 
 
 async def _process_group(texts: list[str], prod_name: str) -> list[BatchResultItem]:
