@@ -1,5 +1,7 @@
-@import 'tailwindcss';
 @import 'material-icons/iconfont/material-icons.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @font-face {
   font-family: 'Segoe UI';

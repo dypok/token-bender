@@ -4,6 +4,7 @@ from app.services.tokenizer import count_tokens, detect_language
 from app.services.translator import translate
 from app.services.spanglish import generate_spanglish
 from app.services.classifier import classify
+import asyncio
 
 router = APIRouter()
 
@@ -15,18 +16,27 @@ async def analyze(req: AnalyzeRequest, deepl_api_key: str = Header(default="")):
 
     original_tokens = count_tokens(req.text)
 
-    translated_text, engine_used = await translate(
-        req.text, req.engine, target_lang, source_lang, deepl_api_key
-    )
-    translated_tokens = count_tokens(translated_text)
-
-    spanglish_text = await generate_spanglish(req.text, source_lang, req.engine)
-    spanglish_tokens = count_tokens(spanglish_text)
+    translate_task = translate(req.text, req.engine, target_lang, source_lang, deepl_api_key)
 
     classification = None
     if req.classify:
-        class_result, _ = await classify(req.text, req.engine, deepl_api_key)
+        classify_task = classify(req.text, req.engine, deepl_api_key)
+
+        (translated_text, engine_used), (class_result, _) = await asyncio.gather(
+            translate_task, classify_task
+        )
         classification = Classification(**class_result)
+    else:
+        translated_text, engine_used = await translate_task
+
+    translated_tokens = count_tokens(translated_text)
+
+    if not req.skip_spanglish:
+        spanglish_text = await generate_spanglish(req.text, source_lang, req.engine)
+        spanglish_tokens = count_tokens(spanglish_text)
+    else:
+        spanglish_text = ""
+        spanglish_tokens = 0
 
     return AnalyzeResponse(
         original=TokenVariant(text=req.text, language=source_lang, token_count=original_tokens),

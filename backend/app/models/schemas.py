@@ -17,6 +17,7 @@ class AnalyzeRequest(BaseModel):
     text: str
     engine: Literal["ollama", "deepl"] = "ollama"
     classify: bool = False
+    skip_spanglish: bool = False
 
 
 class TokenVariant(BaseModel):

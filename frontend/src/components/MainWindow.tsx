@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { analyzeText } from '../api/client'
 import TitleBar from './TitleBar'
@@ -16,13 +17,15 @@ export default function MainWindow() {
     result,
   } = useStore()
 
+  const [classify, setClassify] = useState(false)
+
   const handleAnalyze = async () => {
     if (!inputText.trim()) return
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      const data = await analyzeText(inputText, engine, deeplApiKey)
+      const data = await analyzeText(inputText, engine, deeplApiKey, classify)
       setResult(data)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Request failed')
@@ -59,10 +62,13 @@ export default function MainWindow() {
               <option value="deepl">DeepL (API)</option>
             </select>
           </div>
+          <label className="flex items-center gap-1 text-xs cursor-pointer">
+            <input type="checkbox" checked={classify} onChange={(e) => setClassify(e.target.checked)} />
+            Classify
+          </label>
           <Button onClick={handleAnalyze} disabled={loading || !inputText.trim()}>
             {loading ? 'Analyzing...' : 'Analyze'}
           </Button>
-
         </div>
 
         <StatusBar loading={loading} message={error || undefined} />

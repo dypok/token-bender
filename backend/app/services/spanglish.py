@@ -55,7 +55,7 @@ async def generate_spanglish(text: str, source_lang: str, engine: str = "ollama"
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
             resp.raise_for_status()
             data = resp.json()

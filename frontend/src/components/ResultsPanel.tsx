@@ -37,7 +37,7 @@ function VariantCard({ label, text, language, tokenCount, diff }: {
 }
 
 export default function ResultsPanel() {
-  const { result } = useStore()
+  const { result, setActivePanel } = useStore()
   if (!result) return null
 
   const origTokens = result.original.token_count
@@ -74,6 +74,14 @@ export default function ResultsPanel() {
           &nbsp;| engine: {result.engine_used}
         </div>
       )}
+      <div className="mt-2 flex gap-2">
+        <button
+          className="text-xs text-[var(--aero-start)] hover:underline cursor-pointer"
+          onClick={() => setActivePanel('projection')}
+        >
+          Open in Projection →
+        </button>
+      </div>
     </div>
   )
 }

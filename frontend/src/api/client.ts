@@ -8,8 +8,9 @@ export async function analyzeText(
   engine: string,
   deeplApiKey: string,
   classify = false,
+  skipSpanglish = false,
 ): Promise<AnalyzeResponse> {
-  const resp = await api.post('/analyze', { text, engine, classify }, {
+  const resp = await api.post('/analyze', { text, engine, classify, skip_spanglish: skipSpanglish }, {
     headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
   })
   return resp.data

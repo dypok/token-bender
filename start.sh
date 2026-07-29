@@ -15,7 +15,7 @@ nohup npm run dev -- --port 5173 > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 
 sudo systemctl start ollama
-ollama run llama2:7b
+ollama run qwen2.5:14b
 
 echo ""
 echo "Backend:  http://localhost:8000  (log: /tmp/backend.log)"
