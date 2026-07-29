@@ -194,7 +194,7 @@ El clasificador extrae dos campos de cada reseña:
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.11+ (con las librerías: `fastapi`, `uvicorn`, `tiktoken`, `pandas`, `openpyxl`, `pydantic`, `httpx`, `langdetect`, `deep-translator`, `faker`, `python-multipart`)
 - Node.js 20+
 - Ollama (opcional, para motor local. Modelo `2:7b`)
 - API Key de DeepL (opcional, para motor remoto)

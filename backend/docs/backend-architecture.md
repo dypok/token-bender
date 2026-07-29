@@ -242,6 +242,8 @@ pathlib (stdlib)
 deep-translator
 pydantic
 httpx  # para llamar a Ollama local (REST) y a la API de DeepL
+faker
+python-multipart
 ```
 
 ## 8. Decisiones confirmadas

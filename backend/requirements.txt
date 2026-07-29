@@ -8,3 +8,4 @@ httpx
 langdetect
 deep-translator
 faker
+python-multipart
