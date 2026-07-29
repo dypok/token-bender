@@ -1,4 +1,5 @@
 import os
+import asyncio
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, Header, Form
 from app.models.schemas import (
@@ -12,6 +13,23 @@ from app.services.classifier import classify
 
 router = APIRouter()
 REVIEWS_10K = 10000
+CONCURRENCY_LIMIT = 5
+sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
+
+
+async def _process_row_async(text_str: str, optent_tokens: bool, engine: str, deepl_api_key: str) -> BatchResultItem:
+    async with sem:
+        if not text_str.strip():
+            return _empty_item()
+
+        orig_tokens = count_tokens(text_str)
+        translated, _ = await translate(text_str, engine, deepl_api_key=deepl_api_key)
+        en_tokens = count_tokens(translated)
+
+        text_for_llm = translated if optent_tokens else text_str
+        class_result, _ = await classify(text_for_llm, engine, deepl_api_key)
+
+        return _make_item(text_str, translated, orig_tokens, en_tokens, class_result)
 
 
 @router.post("/api/batch/upload", response_model=BatchUploadResponse)
@@ -23,23 +41,13 @@ async def batch_upload(
 ):
     df = _read_file(file)
     text_col = _detect_text_column(df)
-    results = []
+    
+    tasks = []
     for text in df[text_col]:
         text_str = str(text) if pd.notna(text) else ""
-
-        if not text_str.strip():
-            results.append(_empty_item())
-            continue
-
-        orig_tokens = count_tokens(text_str)
-        translated, _ = await translate(text_str, engine, deepl_api_key=deepl_api_key)
-        en_tokens = count_tokens(translated)
-
-        text_for_llm = translated if optent_tokens else text_str
-        class_result, _ = await classify(text_for_llm, engine, deepl_api_key)
-
-        results.append(_make_item(text_str, translated, orig_tokens, en_tokens, class_result))
-
+        tasks.append(_process_row_async(text_str, optent_tokens, engine, deepl_api_key))
+        
+    results = await asyncio.gather(*tasks)
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
 
@@ -65,23 +73,13 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
 
     df = pd.concat(all_dfs, ignore_index=True)
     text_col = _detect_text_column(df)
-    results = []
+    
+    tasks = []
     for text in df[text_col]:
         text_str = str(text) if pd.notna(text) else ""
-
-        if not text_str.strip():
-            results.append(_empty_item())
-            continue
-
-        orig_tokens = count_tokens(text_str)
-        translated, _ = await translate(text_str, req.engine, deepl_api_key=deepl_api_key)
-        en_tokens = count_tokens(translated)
-
-        text_for_llm = translated if req.optent_tokens else text_str
-        class_result, _ = await classify(text_for_llm, req.engine, deepl_api_key)
-
-        results.append(_make_item(text_str, translated, orig_tokens, en_tokens, class_result))
-
+        tasks.append(_process_row_async(text_str, req.optent_tokens, req.engine, deepl_api_key))
+        
+    results = await asyncio.gather(*tasks)
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
 
