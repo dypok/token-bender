@@ -60,6 +60,10 @@ async def translate_fallback(text: str, target_lang: str = "en", source_lang: st
 
 
 async def translate(text: str, engine: str, target_lang: str = "en", source_lang: str = "auto", deepl_api_key: str = "") -> tuple[str, str]:
+    if engine == "google":
+        result = await translate_fallback(text, target_lang, source_lang)
+        return result, "google"
+
     if engine == "ollama":
         result = await translate_ollama(text, target_lang, source_lang)
         if result:

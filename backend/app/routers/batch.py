@@ -82,8 +82,8 @@ async def _process_review(text: str, engine: str, deepl_api_key: str, optent_tok
 
     if translated is None:
         translated, _ = await translate(text, engine, deepl_api_key=deepl_api_key)
-        text_for_llm = translated if optent_tokens else text
-        cr, _ = await classify(text_for_llm, engine, deepl_api_key)
+        text_for_classify = text if engine == "google" else (translated if optent_tokens else text)
+        cr, _ = await classify(text_for_classify, engine, deepl_api_key)
         class_result = cr
 
     en_tokens = count_tokens(translated)

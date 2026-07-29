@@ -96,6 +96,10 @@ async def classify_fallback(text: str) -> dict:
 
 
 async def classify(text: str, engine: str, deepl_api_key: str = "") -> tuple[dict, str]:
+    if engine == "google":
+        fallback = await classify_fallback(text)
+        return fallback, "google"
+
     if engine == "ollama":
         result = await classify_ollama(text)
         if result:
