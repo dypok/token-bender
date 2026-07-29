@@ -91,6 +91,7 @@ export default function ExcelIngest() {
         if (resultData) {
           setResults(resultData.results)
           setSummary(resultData.economic_summary)
+          downloadExcel(resultData.results, resultData.economic_summary)
 
           const elapsed = Math.round(performance.now() - start)
           addLog('')
@@ -121,6 +122,7 @@ export default function ExcelIngest() {
         const elapsed = Math.round(performance.now() - start)
         setResults(data.results)
         setSummary(data.economic_summary)
+        downloadExcel(data.results, data.economic_summary)
 
         addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
         addLog('')
@@ -147,9 +149,9 @@ export default function ExcelIngest() {
     setLoading(false)
   }
 
-  const handleDownloadExcel = () => {
+  const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null) => {
     const wb = XLSX.utils.book_new()
-    const r = results.map((r) => ({
+    const rows = res.map((r) => ({
       'Rese\u00f1a original': r.review,
       'Tokens original': r.tokens_original,
       'Rese\u00f1a en ingl\u00e9s': r.text_en,
@@ -159,22 +161,24 @@ export default function ExcelIngest() {
       'Error type': r.classification?.error_type ?? '',
       'Component': r.classification?.component ?? '',
     }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(r), 'An\u00e1lisis de costos')
-    if (summary) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'An\u00e1lisis de costos')
+    if (sum) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
-        { M\u00e9trica: 'Total rese\u00f1as procesadas', Valor: summary.total_reviews },
-        { M\u00e9trica: 'Total tokens (original)', Valor: summary.total_tokens_original },
-        { M\u00e9trica: 'Total tokens (ingl\u00e9s)', Valor: summary.total_tokens_en },
-        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (original)', Valor: summary.avg_tokens_original },
-        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (ingl\u00e9s)', Valor: summary.avg_tokens_en },
-        { M\u00e9trica: 'Costo diario original (10k res/d\u00eda)', Valor: `$${summary.daily_cost_original_10k}` },
-        { M\u00e9trica: 'Costo diario ingl\u00e9s (10k res/d\u00eda)', Valor: `$${summary.daily_cost_en_10k}` },
-        { M\u00e9trica: 'Ahorro diario (10k res/d\u00eda)', Valor: `$${summary.daily_savings_10k}` },
-        { M\u00e9trica: 'Ahorro mensual (10k res/d\u00eda)', Valor: `$${summary.monthly_savings_10k}` },
+        { M\u00e9trica: 'Total rese\u00f1as procesadas', Valor: sum.total_reviews },
+        { M\u00e9trica: 'Total tokens (original)', Valor: sum.total_tokens_original },
+        { M\u00e9trica: 'Total tokens (ingl\u00e9s)', Valor: sum.total_tokens_en },
+        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (original)', Valor: sum.avg_tokens_original },
+        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (ingl\u00e9s)', Valor: sum.avg_tokens_en },
+        { M\u00e9trica: 'Costo diario original (10k res/d\u00eda)', Valor: `$${sum.daily_cost_original_10k}` },
+        { M\u00e9trica: 'Costo diario ingl\u00e9s (10k res/d\u00eda)', Valor: `$${sum.daily_cost_en_10k}` },
+        { M\u00e9trica: 'Ahorro diario (10k res/d\u00eda)', Valor: `$${sum.daily_savings_10k}` },
+        { M\u00e9trica: 'Ahorro mensual (10k res/d\u00eda)', Valor: `$${sum.monthly_savings_10k}` },
       ]), 'Proyecci\u00f3n econ\u00f3mica')
     }
     XLSX.writeFile(wb, 'analisis_costos_tokenopt.xlsx')
   }
+
+  const handleDownloadExcel = () => downloadExcel(results, summary)
 
   return (
     <div className="window w-[960px]">
