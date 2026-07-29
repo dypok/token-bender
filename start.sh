@@ -14,6 +14,9 @@ cd "$ROOT/frontend"
 nohup npm run dev -- --port 5173 > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 
+sudo systemctl start ollama
+ollama run llama2:7b
+
 echo ""
 echo "Backend:  http://localhost:8000  (log: /tmp/backend.log)"
 echo "Frontend: http://localhost:5173  (log: /tmp/frontend.log)"

@@ -35,17 +35,28 @@ export interface BatchClassification {
 
 export interface BatchResult {
   review: string
-  tokens: number
+  tokens_original: number
+  text_en: string
+  tokens_en: number
+  cost_original_usd: number
+  cost_en_usd: number
+  best_lang: string
+  justification: string
   classification?: BatchClassification
 }
 
 export interface EconomicSummary {
   total_reviews: number
-  total_tokens_processed: number
-  projected_daily_tokens_10k: number
-  projected_monthly_tokens_10k: number
-  projected_monthly_savings_usd_10k: number
-  avg_tokens_per_review: number
+  total_tokens_original: number
+  total_tokens_en: number
+  avg_tokens_original: number
+  avg_tokens_en: number
+  daily_cost_original_10k: number
+  daily_cost_en_10k: number
+  daily_savings_10k: number
+  weekly_savings_10k: number
+  monthly_savings_10k: number
+  best_global_lang: string
 }
 
 export interface BatchUploadResponse {

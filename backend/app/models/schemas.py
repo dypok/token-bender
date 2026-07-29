@@ -75,19 +75,33 @@ class ProjectionResponse(BaseModel):
     monthly_savings_usd: float
 
 
+COST_PER_MILLION_TOKENS = 2.5
+
+
 class BatchResultItem(BaseModel):
     review: str
-    tokens: int
+    tokens_original: int
+    text_en: str
+    tokens_en: int
+    cost_original_usd: float
+    cost_en_usd: float
+    best_lang: str
+    justification: str
     classification: Optional[Classification] = None
 
 
 class EconomicSummary(BaseModel):
     total_reviews: int
-    total_tokens_processed: int
-    projected_daily_tokens_10k: int
-    projected_monthly_tokens_10k: int
-    projected_monthly_savings_usd_10k: float
-    avg_tokens_per_review: float
+    total_tokens_original: int
+    total_tokens_en: int
+    avg_tokens_original: float
+    avg_tokens_en: float
+    daily_cost_original_10k: float
+    daily_cost_en_10k: float
+    daily_savings_10k: float
+    weekly_savings_10k: float
+    monthly_savings_10k: float
+    best_global_lang: str
 
 
 class BatchUploadResponse(BaseModel):
