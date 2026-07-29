@@ -93,11 +93,12 @@ export default function ConfigPanel() {
           <select
             className="input-aero text-xs w-full"
             value={engine}
-            onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google')}
+            onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos')}
           >
             <option value="ollama">Ollama (local, free)</option>
             <option value="deepl">DeepL (remote, requires API key)</option>
-            <option value="google">Google Translate (fast, no key)</option>
+            <option value="google">Google Translate (no key)</option>
+            <option value="argos">Argos Translate (local, no key)</option>
           </select>
         </div>
       </div>

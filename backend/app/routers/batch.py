@@ -1,4 +1,5 @@
 import os
+import asyncio
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, Header, Form
 from app.models.schemas import (
@@ -9,9 +10,11 @@ from app.models.schemas import (
 from app.services.tokenizer import count_tokens
 from app.services.translator import translate
 from app.services.classifier import classify, classify_combined
+from app.services.argos_translate import batch_translate as argos_batch
 
 router = APIRouter()
 REVIEWS_10K = 10000
+GROUP_CONCURRENCY = 5
 
 
 @router.post("/api/batch/upload", response_model=BatchUploadResponse)
@@ -23,6 +26,10 @@ async def batch_upload(
 ):
     df = _read_file(file)
     text_col = _detect_text_column(df)
+
+    if engine == "argos" and text_col is not None:
+        return await _process_with_argos(df, text_col, optent_tokens)
+
     results = []
     for t in df[text_col]:
         text_str = str(t) if pd.notna(t) else ""
@@ -56,6 +63,10 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
 
     df = pd.concat(all_dfs, ignore_index=True)
     text_col = _detect_text_column(df)
+
+    if req.engine == "argos" and text_col is not None:
+        return await _process_with_argos(df, text_col, req.optent_tokens)
+
     results = []
     for t in df[text_col]:
         text_str = str(t) if pd.notna(t) else ""
@@ -66,6 +77,79 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
         results.append(item)
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
+
+
+async def _process_with_argos(df: pd.DataFrame, text_col: str, optent_tokens: bool) -> BatchUploadResponse:
+    prod_col = _detect_product_column(df)
+
+    if prod_col and optent_tokens:
+        groups = df.groupby(prod_col)
+        group_tasks = []
+        for prod_name, group_df in groups:
+            texts = [str(t) if pd.notna(t) else "" for t in group_df[text_col]]
+            texts = [t.strip() for t in texts if t.strip()]
+            if texts:
+                group_tasks.append(_process_group(texts, prod_name))
+        group_concurrency = min(GROUP_CONCURRENCY, len(group_tasks))
+        sem = asyncio.Semaphore(group_concurrency)
+
+        async def run_group(task):
+            async with sem:
+                return await task
+
+        nested = await asyncio.gather(*[run_group(t) for t in group_tasks])
+        results = [item for batch_list in nested for item in batch_list]
+    else:
+        texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
+        texts = [t.strip() for t in texts if t.strip()]
+        results = await _process_flat_batch(texts)
+
+    summary = _build_summary(results)
+    return BatchUploadResponse(results=results, economic_summary=summary)
+
+
+async def _process_group(texts: list[str], prod_name: str) -> list[BatchResultItem]:
+    seen: dict[str, str] = {}
+    unique_texts: list[str] = []
+    for t in texts:
+        if t not in seen:
+            seen[t] = ""
+            unique_texts.append(t)
+
+    translations = await asyncio.to_thread(argos_batch, unique_texts, "es", "en")
+    for t, trans in zip(unique_texts, translations):
+        seen[t] = trans
+
+    results = []
+    for t in texts:
+        translated = seen[t]
+        orig_tokens = count_tokens(t)
+        en_tokens = count_tokens(translated)
+        class_result, _ = await classify(t, "google", "")
+        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
+    return results
+
+
+async def _process_flat_batch(texts: list[str]) -> list[BatchResultItem]:
+    seen: dict[str, str] = {}
+    unique_texts: list[str] = []
+    for t in texts:
+        if t not in seen:
+            seen[t] = ""
+            unique_texts.append(t)
+
+    translations = await asyncio.to_thread(argos_batch, unique_texts, "es", "en")
+    for t, trans in zip(unique_texts, translations):
+        seen[t] = trans
+
+    results = []
+    for t in texts:
+        translated = seen[t]
+        orig_tokens = count_tokens(t)
+        en_tokens = count_tokens(translated)
+        class_result, _ = await classify(t, "google", "")
+        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
+    return results
 
 
 async def _process_review(text: str, engine: str, deepl_api_key: str, optent_tokens: bool) -> BatchResultItem:
@@ -103,25 +187,10 @@ def projection(req: ProjectionRequest):
     )
 
 
-def _empty_item() -> BatchResultItem:
-    return BatchResultItem(
-        review="",
-        tokens_original=0,
-        text_en="",
-        tokens_en=0,
-        cost_original_usd=0.0,
-        cost_en_usd=0.0,
-        best_lang="",
-        justification="",
-        classification=None,
-    )
-
-
 def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None) -> BatchResultItem:
     cost_es = round((tok_es / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     cost_en = round((tok_en / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     diff = tok_en - tok_es
-
     if diff < 0:
         best = "en"
         just = f"Inglés tiene {abs(diff)} tokens menos que español (${abs(round(cost_en - cost_es, 6))} más barato)"
@@ -131,21 +200,21 @@ def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_resul
     else:
         best = "igual"
         just = "Ambos idiomas tienen el mismo costo de tokens"
-
     classification = None
     if class_result and class_result.get("error_type") and class_result.get("component"):
         classification = Classification(**class_result)
-
     return BatchResultItem(
-        review=text_es,
-        tokens_original=tok_es,
-        text_en=text_en,
-        tokens_en=tok_en,
-        cost_original_usd=cost_es,
-        cost_en_usd=cost_en,
-        best_lang=best,
-        justification=just,
-        classification=classification,
+        review=text_es, tokens_original=tok_es, text_en=text_en, tokens_en=tok_en,
+        cost_original_usd=cost_es, cost_en_usd=cost_en, best_lang=best,
+        justification=just, classification=classification,
+    )
+
+
+def _empty_item() -> BatchResultItem:
+    return BatchResultItem(
+        review="", tokens_original=0, text_en="", tokens_en=0,
+        cost_original_usd=0.0, cost_en_usd=0.0, best_lang="",
+        justification="", classification=None,
     )
 
 
@@ -153,47 +222,35 @@ def _build_summary(results: list[BatchResultItem]) -> EconomicSummary:
     total = len(results)
     if total == 0:
         return _empty_summary()
-
     sum_orig = sum(r.tokens_original for r in results)
     sum_en = sum(r.tokens_en for r in results)
     avg_orig = round(sum_orig / total, 1)
     avg_en = round(sum_en / total, 1)
-
     daily_orig = (avg_orig / 1_000_000) * COST_PER_MILLION_TOKENS * REVIEWS_10K
     daily_en = (avg_en / 1_000_000) * COST_PER_MILLION_TOKENS * REVIEWS_10K
     daily_savings = daily_orig - daily_en
-
     en_better = sum(1 for r in results if r.best_lang == "en")
     es_better = sum(1 for r in results if r.best_lang == "es")
-    best_global = "en" if en_better >= es_better else "es"
-
     return EconomicSummary(
         total_reviews=total,
         total_tokens_original=sum_orig,
         total_tokens_en=sum_en,
-        avg_tokens_original=avg_orig,
-        avg_tokens_en=avg_en,
+        avg_tokens_original=avg_orig, avg_tokens_en=avg_en,
         daily_cost_original_10k=round(daily_orig, 2),
         daily_cost_en_10k=round(daily_en, 2),
         daily_savings_10k=round(max(0, daily_savings), 2),
         weekly_savings_10k=round(max(0, daily_savings * 7), 2),
         monthly_savings_10k=round(max(0, daily_savings * 30), 2),
-        best_global_lang=best_global,
+        best_global_lang="en" if en_better >= es_better else "es",
     )
 
 
 def _empty_summary() -> EconomicSummary:
     return EconomicSummary(
-        total_reviews=0,
-        total_tokens_original=0,
-        total_tokens_en=0,
-        avg_tokens_original=0.0,
-        avg_tokens_en=0.0,
-        daily_cost_original_10k=0.0,
-        daily_cost_en_10k=0.0,
-        daily_savings_10k=0.0,
-        weekly_savings_10k=0.0,
-        monthly_savings_10k=0.0,
+        total_reviews=0, total_tokens_original=0, total_tokens_en=0,
+        avg_tokens_original=0.0, avg_tokens_en=0.0,
+        daily_cost_original_10k=0.0, daily_cost_en_10k=0.0,
+        daily_savings_10k=0.0, weekly_savings_10k=0.0, monthly_savings_10k=0.0,
         best_global_lang="es",
     )
 
@@ -205,9 +262,17 @@ def _read_file(file: UploadFile) -> pd.DataFrame:
     return pd.read_excel(file.file)
 
 
-def _detect_text_column(df: pd.DataFrame) -> str:
+def _detect_text_column(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         low = col.lower().replace("ñ", "n")
         if any(k in low for k in ["review", "reseña", "rese", "text", "feedback", "coment"]):
             return col
-    return df.columns[0]
+    return df.columns[0] if len(df.columns) > 0 else None
+
+
+def _detect_product_column(df: pd.DataFrame) -> str | None:
+    for col in df.columns:
+        low = col.lower().replace("ñ", "n").replace("ó", "o").replace("é", "e")
+        if any(k in low for k in ["producto", "product", "item", "nombre", "categoria", "category"]):
+            return col
+    return None

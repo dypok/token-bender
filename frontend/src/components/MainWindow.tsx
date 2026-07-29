@@ -56,11 +56,12 @@ export default function MainWindow() {
             <select
               className="input-aero text-xs"
               value={engine}
-              onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google')}
+              onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos')}
             >
               <option value="ollama">Ollama (local)</option>
               <option value="deepl">DeepL (API)</option>
               <option value="google">Google Translate</option>
+              <option value="argos">Argos Translate (local)</option>
             </select>
           </div>
           <label className="flex items-center gap-1 text-xs cursor-pointer">

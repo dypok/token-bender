@@ -1,7 +1,9 @@
+import asyncio
 import json
 from deep_translator import GoogleTranslator
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL, DEEPL_BASE_URL
 from app.http_pool import get_http
+from app.services.argos_translate import translate as argos_translate
 
 
 async def translate_ollama(text: str, target_lang: str = "en", source_lang: str = "auto") -> str | None:
@@ -60,6 +62,10 @@ async def translate_fallback(text: str, target_lang: str = "en", source_lang: st
 
 
 async def translate(text: str, engine: str, target_lang: str = "en", source_lang: str = "auto", deepl_api_key: str = "") -> tuple[str, str]:
+    if engine == "argos":
+        result = await asyncio.to_thread(argos_translate, text, source_lang, target_lang)
+        return result, "argos"
+
     if engine == "google":
         result = await translate_fallback(text, target_lang, source_lang)
         return result, "google"

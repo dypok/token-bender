@@ -15,7 +15,7 @@ class TokenizeResponse(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     text: str
-    engine: Literal["ollama", "deepl", "google"] = "ollama"
+    engine: Literal["ollama", "deepl", "google", "argos"] = "ollama"
     classify: bool = False
     skip_spanglish: bool = False
 
@@ -43,7 +43,7 @@ class TranslateRequest(BaseModel):
     text: str
     source_lang: str = "auto"
     target_lang: str = "en"
-    engine: Literal["ollama", "deepl", "google"] = "ollama"
+    engine: Literal["ollama", "deepl", "google", "argos"] = "ollama"
 
 
 class TranslateResponse(BaseModel):
@@ -53,13 +53,13 @@ class TranslateResponse(BaseModel):
 
 class BatchUploadRequest(BaseModel):
     optent_tokens: bool = True
-    engine: Literal["ollama", "deepl", "google"] = "ollama"
+    engine: Literal["ollama", "deepl", "google", "argos"] = "ollama"
 
 
 class BatchFolderRequest(BaseModel):
     folder_path: str
     optent_tokens: bool = True
-    engine: Literal["ollama", "deepl", "google"] = "ollama"
+    engine: Literal["ollama", "deepl", "google", "argos"] = "ollama"
 
 
 class ProjectionRequest(BaseModel):
