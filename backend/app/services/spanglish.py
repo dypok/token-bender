@@ -2,6 +2,7 @@ import json
 import os
 import httpx
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from app.services.translator import is_ollama_online
 
 DICT_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "spanglish_dict.json")
 
@@ -36,6 +37,9 @@ async def generate_spanglish(text: str, source_lang: str, engine: str = "ollama"
     dict_text = apply_dictionary(text, source_lang)
 
     if engine != "ollama":
+        return dict_text
+
+    if not await is_ollama_online():
         return dict_text
 
     lang_pair = "Spanish to English" if source_lang == "es" else "English to Spanish"

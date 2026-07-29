@@ -2,6 +2,7 @@ import httpx
 import json
 import re
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from app.services.translator import is_ollama_online
 
 
 SYSTEM_PROMPT = (
@@ -17,6 +18,9 @@ SYSTEM_PROMPT = (
 
 
 async def classify_ollama(text: str) -> dict | None:
+    if not await is_ollama_online():
+        return None
+
     payload = {
         "model": OLLAMA_MODEL,
         "system": SYSTEM_PROMPT,

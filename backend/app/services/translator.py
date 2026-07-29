@@ -1,10 +1,27 @@
 import httpx
 import json
+import time
 from deep_translator import GoogleTranslator
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL, DEEPL_BASE_URL
 
 
+_ollama_cache = {"available": None, "last_checked": 0}
+
+
+async def is_ollama_online() -> bool:
+    now = time.time()
+    if _ollama_cache["available"] is not None and (now - _ollama_cache["last_checked"]) < 15:
+        return _ollama_cache["available"]
+    online = await check_ollama_status()
+    _ollama_cache["available"] = online
+    _ollama_cache["last_checked"] = now
+    return online
+
+
 async def translate_ollama(text: str, target_lang: str = "en", source_lang: str = "auto") -> str | None:
+    if not await is_ollama_online():
+        return None
+
     lang_map = {"en": "English", "es": "Spanish"}
     target = lang_map.get(target_lang, "English")
     source_lang_display = lang_map.get(source_lang) if source_lang != "auto" else "the original"
@@ -86,7 +103,7 @@ async def translate(text: str, engine: str, target_lang: str = "en", source_lang
 
 async def check_ollama_status() -> bool:
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=1.5) as client:
             resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
             return resp.status_code == 200
     except Exception:
