@@ -12,7 +12,7 @@ from app.models.schemas import (
 from app.services.tokenizer import count_tokens
 from app.services.translator import translate
 from app.services.classifier import classify, classify_combined
-from app.services.argos_translate import batch_translate as argos_batch
+from app.services.argos_translate import parallel_batch_translate as argos_batch
 from app.batch_tasks import create_task, add_log, get_logs, set_result, get_result, is_done
 
 router = APIRouter()
@@ -179,7 +179,7 @@ async def _run_batch_background(task_id: str, file: UploadFile, optent_tokens: b
                         if n_dedup:
                             add_log(task_id, f"    Textos únicos: {len(uniques)} (dedup ahorra {n_dedup})")
                         add_log(task_id, f"    Traduciendo {len(uniques)} textos con Argos...")
-                        translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+                        translations = await argos_batch(uniques, "es", "en")
                         add_log(task_id, f"    Traducción completada ({len(uniques)} textos). Clasificando...")
                         cache = await _build_cache(uniques, translations)
                         items = [_rebuild_item(t, cache) for t in texts]
@@ -223,7 +223,7 @@ async def _process_flat_batch_logged(task_id: str, df, text_col) -> list[BatchRe
     uniques = list(dict.fromkeys(texts))
     add_log(task_id, f"Textos únicos: {len(uniques)} de {len(texts)} total (dedup {len(texts) - len(uniques)})")
     add_log(task_id, f"Traduciendo {len(uniques)} textos con Argos...")
-    translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+    translations = await argos_batch(uniques, "es", "en")
     add_log(task_id, f"Traducción completada.")
     cache = await _build_cache(uniques, translations)
     return [_rebuild_item(t, cache) for t in texts]
@@ -231,7 +231,7 @@ async def _process_flat_batch_logged(task_id: str, df, text_col) -> list[BatchRe
 
 async def _process_group(texts: list[str], prod_name: str) -> list[BatchResultItem]:
     uniques = list(dict.fromkeys(texts))
-    translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+    translations = await argos_batch(uniques, "es", "en")
     cache = await _build_cache(uniques, translations)
     return [_rebuild_item(t, cache) for t in texts]
 
@@ -263,25 +263,10 @@ def _rebuild_item(text: str, cache: dict[str, dict]) -> BatchResultItem:
 
 
 async def _process_flat_batch(texts: list[str]) -> list[BatchResultItem]:
-    seen: dict[str, str] = {}
-    unique_texts: list[str] = []
-    for t in texts:
-        if t not in seen:
-            seen[t] = ""
-            unique_texts.append(t)
-
-    translations = await asyncio.to_thread(argos_batch, unique_texts, "es", "en")
-    for t, trans in zip(unique_texts, translations):
-        seen[t] = trans
-
-    results = []
-    for t in texts:
-        translated = seen[t]
-        orig_tokens = count_tokens(t)
-        en_tokens = count_tokens(translated)
-        class_result, _ = await classify(t, "google", "")
-        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
-    return results
+    uniques = list(dict.fromkeys(texts))
+    translations = await argos_batch(uniques, "es", "en")
+    cache = await _build_cache(uniques, translations)
+    return [_rebuild_item(t, cache) for t in texts]
 
 
 async def _process_review(text: str, engine: str, deepl_api_key: str, optent_tokens: bool) -> BatchResultItem:

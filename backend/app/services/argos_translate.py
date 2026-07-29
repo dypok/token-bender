@@ -1,3 +1,4 @@
+import math
 import argostranslate.package
 import argostranslate.translate
 
@@ -36,3 +37,26 @@ def batch_translate(texts: list[str], source_lang: str = "es", target_lang: str 
     es_to_en, en_to_es = init_packages()
     translator = es_to_en if source_lang == "es" and target_lang == "en" else en_to_es
     return [translator.translate(t) for t in texts]
+
+
+def _translate_chunk(chunk: list[str], translator) -> list[str]:
+    return [translator.translate(t) for t in chunk]
+
+
+async def parallel_batch_translate(texts: list[str], source_lang: str = "es", target_lang: str = "en", max_workers: int = 4) -> list[str]:
+    import asyncio
+    es_to_en, en_to_es = init_packages()
+    translator = es_to_en if source_lang == "es" and target_lang == "en" else en_to_es
+
+    n = len(texts)
+    if n <= 1:
+        return [translator.translate(t) for t in texts]
+
+    chunk_size = max(1, math.ceil(n / max_workers))
+    chunks = [texts[i:i + chunk_size] for i in range(0, n, chunk_size)]
+
+    results = await asyncio.gather(*[
+        asyncio.to_thread(_translate_chunk, chunk, translator) for chunk in chunks
+    ])
+
+    return [t for chunk in results for t in chunk]
