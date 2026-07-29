@@ -1,8 +1,7 @@
-import httpx
 import json
 import re
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL
-from app.services.translator import is_ollama_online
+from app.http_pool import get_http
 
 
 SYSTEM_PROMPT = (
@@ -18,9 +17,6 @@ SYSTEM_PROMPT = (
 
 
 async def classify_ollama(text: str) -> dict | None:
-    if not await is_ollama_online():
-        return None
-
     payload = {
         "model": OLLAMA_MODEL,
         "system": SYSTEM_PROMPT,
@@ -28,12 +24,40 @@ async def classify_ollama(text: str) -> dict | None:
         "stream": False,
     }
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data.get("response", "").strip()
-            return _parse_json(raw)
+        client = get_http()
+        resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        raw = data.get("response", "").strip()
+        return _parse_json(raw)
+    except Exception:
+        return None
+
+
+async def classify_combined(text: str) -> dict | None:
+    prompt = (
+        "Translate the following Spanish app review to English and classify the error. "
+        "Respond ONLY with a valid JSON object, no extra text:\n"
+        '{"translation": "...", "error_type": "crash|bug|performance|ui|network|feature_request", '
+        '"component": "login|signup|profile_picture_upload|gallery|camera|chat|payment|'
+        'checkout|notifications|settings|video_player|audio_player|file_download|search|map|unknown"}\n\n'
+        f"Review: {text}"
+    )
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+    }
+    try:
+        client = get_http()
+        resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        raw = data.get("response", "").strip()
+        parsed = _parse_json(raw)
+        if parsed and "translation" in parsed:
+            return parsed
+        return None
     except Exception:
         return None
 

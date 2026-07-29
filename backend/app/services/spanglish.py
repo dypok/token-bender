@@ -1,8 +1,7 @@
 import json
 import os
-import httpx
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL
-from app.services.translator import is_ollama_online
+from app.http_pool import get_http
 
 DICT_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "spanglish_dict.json")
 
@@ -39,9 +38,6 @@ async def generate_spanglish(text: str, source_lang: str, engine: str = "ollama"
     if engine != "ollama":
         return dict_text
 
-    if not await is_ollama_online():
-        return dict_text
-
     lang_pair = "Spanish to English" if source_lang == "es" else "English to Spanish"
     prompt = (
         f"You are a Spanglish generator. Given a {lang_pair} text, rewrite it by "
@@ -59,10 +55,10 @@ async def generate_spanglish(text: str, source_lang: str, engine: str = "ollama"
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("response", "").strip()
+        client = get_http()
+        resp = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("response", "").strip()
     except Exception:
         return dict_text

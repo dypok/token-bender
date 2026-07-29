@@ -1,80 +1,12 @@
 import { useState, useRef, useCallback } from 'react'
 import { useStore } from '../store/useStore'
-import { uploadExcel, processFolder, analyzeText } from '../api/client'
+import { uploadExcel, processFolder } from '../api/client'
 import TitleBar from './TitleBar'
 import Button from './Button'
 import ConsoleWindow from './ConsoleWindow'
 import type { ConsoleLine } from './ConsoleWindow'
 import * as XLSX from 'xlsx'
-import type { BatchResult, EconomicSummary, AnalyzeResponse } from '../types'
-
-const COST_PER_MILLION = 2.5
-const REVIEWS_10K = 10000
-
-function makeBatchItem(text: string, resp: AnalyzeResponse): BatchResult {
-  const tokEs = resp.original.token_count
-  const tokEn = resp.translated.token_count
-  const costEs = (tokEs / 1_000_000) * COST_PER_MILLION
-  const costEn = (tokEn / 1_000_000) * COST_PER_MILLION
-  const diff = tokEn - tokEs
-  let best: string, just: string
-  if (diff < 0) {
-    best = 'en'
-    just = `Inglés tiene ${Math.abs(diff)} tokens menos que español ($${Math.abs(costEn - costEs).toFixed(6)} más barato)`
-  } else if (diff > 0) {
-    best = 'es'
-    just = `Español tiene ${diff} tokens menos que inglés ($${Math.abs(costEs - costEn).toFixed(6)} más barato)`
-  } else {
-    best = 'igual'
-    just = 'Ambos idiomas tienen el mismo costo de tokens'
-  }
-  return {
-    review: text,
-    tokens_original: tokEs,
-    text_en: resp.translated.text,
-    tokens_en: tokEn,
-    cost_original_usd: costEs,
-    cost_en_usd: costEn,
-    best_lang: best,
-    justification: just,
-    classification: resp.classification ?? undefined,
-  }
-}
-
-function buildSummary(items: BatchResult[]): EconomicSummary {
-  const total = items.length
-  if (total === 0) {
-    return {
-      total_reviews: 0, total_tokens_original: 0, total_tokens_en: 0,
-      avg_tokens_original: 0, avg_tokens_en: 0,
-      daily_cost_original_10k: 0, daily_cost_en_10k: 0,
-      daily_savings_10k: 0, weekly_savings_10k: 0, monthly_savings_10k: 0,
-      best_global_lang: 'es',
-    }
-  }
-  const sumOrig = items.reduce((a, r) => a + r.tokens_original, 0)
-  const sumEn = items.reduce((a, r) => a + r.tokens_en, 0)
-  const avgOrig = Math.round(sumOrig / total)
-  const avgEn = Math.round(sumEn / total)
-  const dailyOrig = (avgOrig / 1_000_000) * COST_PER_MILLION * REVIEWS_10K
-  const dailyEn = (avgEn / 1_000_000) * COST_PER_MILLION * REVIEWS_10K
-  const dailySavings = dailyOrig - dailyEn
-  const enBetter = items.filter((r) => r.best_lang === 'en').length
-  const esBetter = items.filter((r) => r.best_lang === 'es').length
-  return {
-    total_reviews: total,
-    total_tokens_original: sumOrig,
-    total_tokens_en: sumEn,
-    avg_tokens_original: avgOrig,
-    avg_tokens_en: avgEn,
-    daily_cost_original_10k: Math.round(dailyOrig * 100) / 100,
-    daily_cost_en_10k: Math.round(dailyEn * 100) / 100,
-    daily_savings_10k: Math.round(Math.max(0, dailySavings) * 100) / 100,
-    weekly_savings_10k: Math.round(Math.max(0, dailySavings * 7) * 100) / 100,
-    monthly_savings_10k: Math.round(Math.max(0, dailySavings * 30) * 100) / 100,
-    best_global_lang: enBetter >= esBetter ? 'en' : 'es',
-  }
-}
+import type { BatchResult, EconomicSummary } from '../types'
 
 export default function ExcelIngest() {
   const { engine, deeplApiKey } = useStore()
@@ -88,7 +20,6 @@ export default function ExcelIngest() {
   const [mode, setMode] = useState<'file' | 'folder'>('file')
   const [folderPath, setFolderPath] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const abortRef = useRef(false)
 
   const addLog = useCallback((text: string, color?: ConsoleLine['color']) => {
     setConsoleLines((prev) => [...prev, { text, color }])
@@ -109,7 +40,6 @@ export default function ExcelIngest() {
   }
 
   const handleProcess = async () => {
-    abortRef.current = false
     setLoading(true)
     setConsoleVisible(true)
     setConsoleLines([])
@@ -120,7 +50,8 @@ export default function ExcelIngest() {
     addLog('Copyright (c) 2009 Microsoft Corporation. Todos los derechos reservados.', 'gray')
     addLog('')
 
-    let rows: string[][] = []
+    let total = 0
+    let start = performance.now()
 
     if (mode === 'file') {
       const file = fileRef.current?.files?.[0]
@@ -130,10 +61,37 @@ export default function ExcelIngest() {
         return
       }
       addLog(`C:\\&gt; Procesando archivo: ${file.name}`, 'cyan')
-      const data = new Uint8Array(await file.arrayBuffer())
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
+      addLog(`Enviando al servidor para procesamiento batch (${engine})...`)
+      addLog('')
+
+      try {
+        const data = await uploadExcel(file, optimize, engine, deeplApiKey)
+        const elapsed = Math.round(performance.now() - start)
+        setResults(data.results)
+        setSummary(data.economic_summary)
+
+        addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
+        addLog('')
+        addLog('--- RESULTADOS ---', 'cyan')
+
+        for (const r of data.results) {
+          const best = r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : '='
+          const err = r.classification?.error_type ?? '\u2014'
+          const comp = r.classification?.component ?? '\u2014'
+          addLog(`  [${r.tokens_original}tok ES / ${r.tokens_en}tok EN] ${best} | error=${err}, componente=${comp}`, 'white')
+        }
+
+        addLog('')
+        addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
+        const s = data.economic_summary
+        addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
+        addLog(`Promedio tokens/rese\u00f1a (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
+        addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
+        addLog('')
+        addLog('C:\\&gt; Proceso completado.', 'green')
+      } catch {
+        addLog('ERROR: Fall\u00f3 el procesamiento batch.', 'red')
+      }
     } else {
       if (!folderPath.trim()) {
         addLog('ERROR: No se especific\u00f3 ruta de carpeta.', 'red')
@@ -142,99 +100,32 @@ export default function ExcelIngest() {
       }
       addLog(`C:\\&gt; Escaneando carpeta: ${folderPath}`, 'cyan')
       try {
+        start = performance.now()
         const data = await processFolder(folderPath.trim(), optimize, engine, deeplApiKey)
+        const elapsed = Math.round(performance.now() - start)
         setResults(data.results)
         setSummary(data.economic_summary)
+
+        addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
         addLog('')
-        addLog(`Procesados ${data.results.length} archivos (v\u00eda servidor).`, 'green')
+        addLog('--- RESULTADOS ---', 'cyan')
+        for (const r of data.results) {
+          const best = r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : '='
+          const err = r.classification?.error_type ?? '\u2014'
+          const comp = r.classification?.component ?? '\u2014'
+          addLog(`  [${r.tokens_original}tok ES / ${r.tokens_en}tok EN] ${best} | error=${err}, componente=${comp}`, 'white')
+        }
+
         addLog('')
-        setLoading(false)
-        return
+        addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
+        const s = data.economic_summary
+        addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
+        addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
+        addLog('')
+        addLog('C:\\&gt; Proceso completado.', 'green')
       } catch {
         addLog('ERROR: Fall\u00f3 el procesamiento de la carpeta.', 'red')
-        setLoading(false)
-        return
       }
-    }
-
-    const textCol = _detectTextColumn(rows)
-    if (!textCol) {
-      addLog('ERROR: No se pudo detectar la columna de rese\u00f1as.', 'red')
-      setLoading(false)
-      return
-    }
-
-    const reviews = rows.slice(1).map((r) => String(r[textCol] ?? '')).filter(Boolean)
-    addLog(`Leidas ${reviews.length} rese\u00f1as desde la columna "${rows[0][textCol]}"`)
-    addLog('')
-    addLog(`Iniciando procesamiento concurrente (lotes de hasta 2 en paralelo)`, 'cyan')
-    addLog('')
-
-    const batchItems: BatchResult[] = []
-    const CONCURRENCY = 2
-
-    async function processOne(review: string, index: number): Promise<{ logs: ConsoleLine[]; item: BatchResult | null }> {
-      const logs: ConsoleLine[] = []
-      const push = (text: string, color?: ConsoleLine['color']) => logs.push({ text, color })
-      const startTime = performance.now()
-
-      push(`[${index + 1}/${reviews.length}] "${review.slice(0, 60)}${review.length > 60 ? '...' : ''}"`, 'yellow')
-
-      try {
-        push('  \u2514 Analizando...', 'gray')
-        const resp = await analyzeText(review, engine, deeplApiKey, true, true)
-        push(`  \u2514 ES: ${resp.original.token_count} tok | EN: ${resp.translated.token_count} tok (${resp.engine_used})`, 'gray')
-
-        if (resp.classification) {
-          push(`  \u2514 error=${resp.classification.error_type}, componente=${resp.classification.component}`, 'green')
-        }
-
-        const elapsed = Math.round(performance.now() - startTime)
-        const saved = resp.original.token_count - resp.translated.token_count
-        push(`  \u2713 ${elapsed}ms (ahorro: ${saved > 0 ? saved : 'ninguno'} tokens)`, saved > 0 ? 'green' : 'gray')
-        push('')
-
-        return { logs, item: makeBatchItem(review, resp) }
-      } catch {
-        const elapsed = Math.round(performance.now() - startTime)
-        push(`  \u2717 ERROR (${elapsed}ms)`, 'red')
-        push('')
-        return { logs, item: null }
-      }
-    }
-
-    for (let i = 0; i < reviews.length; i += CONCURRENCY) {
-      if (abortRef.current) break
-      const batch = reviews.slice(i, i + CONCURRENCY)
-      const results = await Promise.all(batch.map((review, idx) => processOne(review, i + idx)))
-
-      for (const r of results) {
-        for (const line of r.logs) {
-          addLog(line.text, line.color)
-        }
-        if (r.item) batchItems.push(r.item)
-      }
-    }
-
-    if (batchItems.length > 0) {
-      const s = buildSummary(batchItems)
-      setResults(batchItems)
-      setSummary(s)
-
-      addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
-      addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
-      addLog(`Tokens original (total): ${s.total_tokens_original}`, 'white')
-      addLog(`Tokens ingl\u00e9s (total): ${s.total_tokens_en}`, 'white')
-      addLog(`Promedio tokens/rese\u00f1a (ES): ${s.avg_tokens_original}`, 'white')
-      addLog(`Promedio tokens/rese\u00f1a (EN): ${s.avg_tokens_en}`, 'white')
-      addLog('')
-      addLog(`Costo diario original (10k res/d\u00eda): $${s.daily_cost_original_10k.toFixed(2)}`, 'yellow')
-      addLog(`Costo diario ingl\u00e9s (10k res/d\u00eda):   $${s.daily_cost_en_10k.toFixed(2)}`, 'yellow')
-      addLog(`Ahorro mensual estimado:                 $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
-      addLog('')
-      addLog('C:\\&gt; Proceso completado.', 'green')
-    } else {
-      addLog('No se procesaron rese\u00f1as.', 'red')
     }
 
     setLoading(false)
@@ -271,7 +162,7 @@ export default function ExcelIngest() {
 
   return (
     <div className="window w-[960px]">
-      <TitleBar title="Excel Ingest — App Store Reviews" icon="description" />
+      <TitleBar title="Excel Ingest \u2014 App Store Reviews" icon="description" />
       <div className="p-4 space-y-4">
         {/* Mode tabs */}
         <div className="flex gap-2">
@@ -442,15 +333,4 @@ export default function ExcelIngest() {
       </div>
     </div>
   )
-}
-
-function _detectTextColumn(rows: string[][]): number | null {
-  if (rows.length < 1) return null
-  const headers = rows[0].map((h) => String(h).toLowerCase().replace('ñ', 'n'))
-  for (let i = 0; i < headers.length; i++) {
-    if (['review', 'reseña', 'rese', 'text', 'feedback', 'coment', 'opinion', 'comentario'].some((k) => headers[i].includes(k))) {
-      return i
-    }
-  }
-  return 0
 }

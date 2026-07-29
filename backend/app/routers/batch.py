@@ -7,29 +7,15 @@ from app.models.schemas import (
     ProjectionResponse, BatchResultItem, BatchUploadResponse,
     Classification, EconomicSummary, COST_PER_MILLION_TOKENS,
 )
-from app.services.tokenizer import count_tokens, detect_language
+from app.services.tokenizer import count_tokens
 from app.services.translator import translate
-from app.services.classifier import classify
+from app.services.classifier import classify, classify_combined
+from app.http_pool import get_http
 
 router = APIRouter()
 REVIEWS_10K = 10000
 CONCURRENCY_LIMIT = 5
-sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
-
-
-async def _process_row_async(text_str: str, optent_tokens: bool, engine: str, deepl_api_key: str) -> BatchResultItem:
-    async with sem:
-        if not text_str.strip():
-            return _empty_item()
-
-        orig_tokens = count_tokens(text_str)
-        translated, _ = await translate(text_str, engine, deepl_api_key=deepl_api_key)
-        en_tokens = count_tokens(translated)
-
-        text_for_llm = translated if optent_tokens else text_str
-        class_result, _ = await classify(text_for_llm, engine, deepl_api_key)
-
-        return _make_item(text_str, translated, orig_tokens, en_tokens, class_result)
+semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
 
 @router.post("/api/batch/upload", response_model=BatchUploadResponse)
@@ -41,13 +27,14 @@ async def batch_upload(
 ):
     df = _read_file(file)
     text_col = _detect_text_column(df)
-    
-    tasks = []
-    for text in df[text_col]:
-        text_str = str(text) if pd.notna(text) else ""
-        tasks.append(_process_row_async(text_str, optent_tokens, engine, deepl_api_key))
-        
-    results = await asyncio.gather(*tasks)
+    texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
+    texts = [t.strip() for t in texts if t.strip()]
+
+    async def process_one(text: str) -> BatchResultItem:
+        async with semaphore:
+            return await _process_review(text, engine, deepl_api_key, optent_tokens)
+
+    results = await asyncio.gather(*[process_one(t) for t in texts])
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
 
@@ -73,15 +60,36 @@ async def batch_folder(req: BatchFolderRequest, deepl_api_key: str = Header(defa
 
     df = pd.concat(all_dfs, ignore_index=True)
     text_col = _detect_text_column(df)
-    
-    tasks = []
-    for text in df[text_col]:
-        text_str = str(text) if pd.notna(text) else ""
-        tasks.append(_process_row_async(text_str, req.optent_tokens, req.engine, deepl_api_key))
-        
-    results = await asyncio.gather(*tasks)
+    texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
+    texts = [t.strip() for t in texts if t.strip()]
+
+    async def process_one(text: str) -> BatchResultItem:
+        async with semaphore:
+            return await _process_review(text, req.engine, deepl_api_key, req.optent_tokens)
+
+    results = await asyncio.gather(*[process_one(t) for t in texts])
     summary = _build_summary(results)
     return BatchUploadResponse(results=results, economic_summary=summary)
+
+
+async def _process_review(text: str, engine: str, deepl_api_key: str, optent_tokens: bool) -> BatchResultItem:
+    orig_tokens = count_tokens(text)
+
+    if engine == "ollama" and optent_tokens:
+        combined = await classify_combined(text)
+        if combined and "translation" in combined and combined.get("error_type") and combined.get("component"):
+            translated = combined["translation"]
+            en_tokens = count_tokens(translated)
+            class_result = {"error_type": combined["error_type"], "component": combined["component"]}
+            return _make_item(text, translated, orig_tokens, en_tokens, class_result)
+
+    translated, _ = await translate(text, engine, deepl_api_key=deepl_api_key)
+    en_tokens = count_tokens(translated)
+
+    text_for_llm = translated if optent_tokens else text
+    class_result, _ = await classify(text_for_llm, engine, deepl_api_key)
+
+    return _make_item(text, translated, orig_tokens, en_tokens, class_result)
 
 
 @router.post("/api/analyze/projection", response_model=ProjectionResponse)
@@ -126,6 +134,10 @@ def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_resul
         best = "igual"
         just = "Ambos idiomas tienen el mismo costo de tokens"
 
+    classification = None
+    if class_result and class_result.get("error_type") and class_result.get("component"):
+        classification = Classification(**class_result)
+
     return BatchResultItem(
         review=text_es,
         tokens_original=tok_es,
@@ -135,7 +147,7 @@ def _make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_resul
         cost_en_usd=cost_en,
         best_lang=best,
         justification=just,
-        classification=Classification(**class_result) if class_result else None,
+        classification=classification,
     )
 
 
