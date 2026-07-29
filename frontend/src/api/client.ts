@@ -52,3 +52,20 @@ export async function uploadExcel(
   })
   return resp.data
 }
+
+export async function processFolder(
+  folderPath: string,
+  optentTokens: boolean,
+  engine: string,
+  deeplApiKey: string,
+): Promise<BatchUploadResponse> {
+  const resp = await api.post('/batch/folder', {
+    folder_path: folderPath,
+    optent_tokens: optentTokens,
+    engine,
+  }, {
+    headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
+  })
+  return resp.data
+}
+

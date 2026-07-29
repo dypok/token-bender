@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useStore } from '../store/useStore'
-import { uploadExcel } from '../api/client'
+import { uploadExcel, processFolder } from '../api/client'
 import TitleBar from './TitleBar'
 import Button from './Button'
 import * as XLSX from 'xlsx'
@@ -13,6 +13,8 @@ export default function ExcelIngest() {
   const [summary, setSummary] = useState<EconomicSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [preview, setPreview] = useState<string[][]>([])
+  const [mode, setMode] = useState<'file' | 'folder'>('file')
+  const [folderPath, setFolderPath] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,12 +31,26 @@ export default function ExcelIngest() {
     reader.readAsArrayBuffer(file)
   }
 
-  const handleUpload = async () => {
-    const file = fileRef.current?.files?.[0]
-    if (!file) return
+  const handleProcess = async () => {
     setLoading(true)
     try {
-      const data = await uploadExcel(file, optimize, engine, deeplApiKey)
+      let data
+      if (mode === 'file') {
+        const file = fileRef.current?.files?.[0]
+        if (!file) {
+          alert('Por favor, selecciona un archivo Excel.')
+          setLoading(false)
+          return
+        }
+        data = await uploadExcel(file, optimize, engine, deeplApiKey)
+      } else {
+        if (!folderPath.trim()) {
+          alert('Por favor, ingresa la ruta de la carpeta.')
+          setLoading(false)
+          return
+        }
+        data = await processFolder(folderPath.trim(), optimize, engine, deeplApiKey)
+      }
       setResults(data.results)
       setSummary(data.economic_summary)
     } catch {
@@ -86,24 +102,63 @@ export default function ExcelIngest() {
     <div className="window w-[900px]">
       <TitleBar title="Excel Ingest — App Store Reviews" icon="description" />
       <div className="p-4 space-y-4">
-        {/* Upload controls */}
-        <div className="panel">
-          <div className="panel-header">Upload Excel File</div>
-          <div className="flex gap-2 items-center">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx"
-              onChange={handleFile}
-              className="text-xs"
-            />
-            <div className="flex items-center gap-2 text-xs">
+        {/* Selection mode */}
+        <div className="flex gap-2">
+          <button
+            className={`px-4 py-1.5 text-xs cursor-pointer rounded-t-md border border-b-0 ${
+              mode === 'file'
+                ? 'bg-white border-gray-300 font-semibold text-[var(--aero-end)] shadow-sm'
+                : 'bg-gray-100 border-transparent text-gray-600 hover:bg-gray-200'
+            }`}
+            onClick={() => { setMode('file'); setResults([]); setSummary(null); setPreview([]); }}
+          >
+            Modo A: Archivo Único (.xlsx)
+          </button>
+          <button
+            className={`px-4 py-1.5 text-xs cursor-pointer rounded-t-md border border-b-0 ${
+              mode === 'folder'
+                ? 'bg-white border-gray-300 font-semibold text-[var(--aero-end)] shadow-sm'
+                : 'bg-gray-100 border-transparent text-gray-600 hover:bg-gray-200'
+            }`}
+            onClick={() => { setMode('folder'); setResults([]); setSummary(null); setPreview([]); }}
+          >
+            Modo B: Lote en Carpeta
+          </button>
+        </div>
+
+        {/* Upload/Folder controls */}
+        <div className="panel !rounded-tl-none">
+          <div className="panel-header">
+            {mode === 'file' ? 'Cargar Archivo Excel' : 'Procesar Carpeta Local (Servidor)'}
+          </div>
+          <div className="flex gap-4 items-center p-2">
+            {mode === 'file' ? (
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx"
+                onChange={handleFile}
+                className="text-xs flex-1"
+              />
+            ) : (
+              <div className="flex-1 flex gap-2 items-center">
+                <span className="text-xs text-gray-600 font-medium shrink-0">Ruta de carpeta:</span>
+                <input
+                  type="text"
+                  placeholder="Ej. C:/Users/Usuario/Documentos/Reseñas"
+                  value={folderPath}
+                  onChange={(e) => setFolderPath(e.target.value)}
+                  className="input-aero flex-1 text-xs px-2 py-1"
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-3 text-xs shrink-0">
               <label className="flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
-                Optimize tokens
+                Optimizar tokens (Traducir a Inglés)
               </label>
-              <Button onClick={handleUpload} disabled={loading}>
-                {loading ? 'Processing...' : 'Analyze'}
+              <Button onClick={handleProcess} disabled={loading}>
+                {loading ? 'Procesando...' : 'Analizar'}
               </Button>
             </div>
           </div>

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+tiktoken
+pandas
+openpyxl
+pydantic
+httpx
+langdetect
+deep-translator
+faker
