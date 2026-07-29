@@ -1,4 +1,4 @@
-<<<<<<< Updated upstream
+
 # Token Bender - Optimizador de Tokens para LLMs
 
 Token Bender es una aplicacion web diseñada para optimizar los costos de procesamiento de texto con Modelos de Lenguaje Grande (LLMs). Se enfoca en analizar y reducir el consumo de tokens mediante la traduccion de reseñas de aplicaciones del español al ingles (ya que el ingles utiliza significativamente menos tokens para representar el mismo significado semantico en tokenizadores como tiktoken).
@@ -255,4 +255,4 @@ Durante desarrollo, Vite actúa como proxy: toda petición a `/api/*` desde el f
 ## Licencia
 
 MIT
->>>>>>> Stashed changes
+
