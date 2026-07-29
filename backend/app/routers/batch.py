@@ -172,15 +172,9 @@ async def _run_batch_background(task_id: str, file: UploadFile, optent_tokens: b
                         add_log(task_id, f"    Textos únicos: {len(uniques)} (dedup ahorra {len(texts) - len(uniques)})")
                         add_log(task_id, f"    Traduciendo {len(uniques)} textos con Argos...")
                         translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
-                        add_log(task_id, f"    Traducción completada.")
-                        seen = dict(zip(uniques, translations))
-                        items = []
-                        for t in texts:
-                            translated = seen[t]
-                            orig_tokens = count_tokens(t)
-                            en_tokens = count_tokens(translated)
-                            class_result, _ = await classify(t, "google", "")
-                            items.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
+                        add_log(task_id, f"    Traducción completada. Clasificando...")
+                        cache = await _build_cache(uniques, translations)
+                        items = [_rebuild_item(t, cache) for t in texts]
                         add_log(task_id, f"  ✓ Grupo '{name}' completado ({len(items)} reseñas)")
                         return items
 
@@ -221,37 +215,41 @@ async def _process_flat_batch_logged(task_id: str, df, text_col) -> list[BatchRe
     add_log(task_id, f"Traduciendo {len(uniques)} textos con Argos...")
     translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
     add_log(task_id, f"Traducción completada.")
-    seen = dict(zip(uniques, translations))
-    results = []
-    for i, t in enumerate(texts):
-        translated = seen[t]
-        orig_tokens = count_tokens(t)
-        en_tokens = count_tokens(translated)
-        class_result, _ = await classify(t, "google", "")
-        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
-    return results
+    cache = await _build_cache(uniques, translations)
+    return [_rebuild_item(t, cache) for t in texts]
 
 
 async def _process_group(texts: list[str], prod_name: str) -> list[BatchResultItem]:
-    seen: dict[str, str] = {}
-    unique_texts: list[str] = []
-    for t in texts:
-        if t not in seen:
-            seen[t] = ""
-            unique_texts.append(t)
+    uniques = list(dict.fromkeys(texts))
+    translations = await asyncio.to_thread(argos_batch, uniques, "es", "en")
+    cache = await _build_cache(uniques, translations)
+    return [_rebuild_item(t, cache) for t in texts]
 
-    translations = await asyncio.to_thread(argos_batch, unique_texts, "es", "en")
-    for t, trans in zip(unique_texts, translations):
-        seen[t] = trans
 
-    results = []
-    for t in texts:
-        translated = seen[t]
-        orig_tokens = count_tokens(t)
-        en_tokens = count_tokens(translated)
-        class_result, _ = await classify(t, "google", "")
-        results.append(_make_item(t, translated, orig_tokens, en_tokens, class_result))
-    return results
+async def _build_cache(uniques: list[str], translations: list[str]) -> dict[str, dict]:
+    cache: dict[str, dict] = {}
+    for txt, trans in zip(uniques, translations):
+        orig_tokens = count_tokens(txt)
+        en_tokens = count_tokens(trans)
+        class_result, _ = await classify(txt, "google", "")
+        cache[txt] = {
+            "translation": trans,
+            "orig_tokens": orig_tokens,
+            "en_tokens": en_tokens,
+            "classification": class_result,
+        }
+    return cache
+
+
+def _rebuild_item(text: str, cache: dict[str, dict]) -> BatchResultItem:
+    entry = cache[text]
+    return _make_item(
+        text,
+        entry["translation"],
+        entry["orig_tokens"],
+        entry["en_tokens"],
+        entry["classification"],
+    )
 
 
 async def _process_flat_batch(texts: list[str]) -> list[BatchResultItem]:
