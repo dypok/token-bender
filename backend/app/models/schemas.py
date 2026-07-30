@@ -89,6 +89,8 @@ class BatchResultItem(BaseModel):
     best_lang: str
     justification: str
     classification: Optional[Classification] = None
+    frequency: int = 1
+    product_name: Optional[str] = None
 
 
 class EconomicSummary(BaseModel):

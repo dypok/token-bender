@@ -43,6 +43,8 @@ export interface BatchResult {
   best_lang: string
   justification: string
   classification?: BatchClassification
+  frequency?: number
+  product_name?: string
 }
 
 export interface EconomicSummary {

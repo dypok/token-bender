@@ -9,8 +9,8 @@ from app.models.schemas import (
     Classification, EconomicSummary, COST_PER_MILLION_TOKENS
 )
 from app.services.tokenizer import count_tokens
-from app.services.classifier import classify
 from app.services.ctranslate_service import translate_ctranslate2_batch
+from app.services.semantic_cluster import cluster_semantic_reviews
 from app.batch_tasks import add_log, set_result
 
 REVIEWS_10K = 10000
@@ -31,7 +31,15 @@ def detect_text_column(df: pd.DataFrame) -> str | None:
     return df.columns[0] if len(df.columns) > 0 else None
 
 
-def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None) -> BatchResultItem:
+def detect_product_column(df: pd.DataFrame) -> str | None:
+    for col in df.columns:
+        low = col.lower().replace("ñ", "n").replace("ó", "o").replace("é", "e")
+        if any(k in low for k in ["producto", "product", "item", "nombre", "categoria", "category"]):
+            return col
+    return None
+
+
+def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None, frequency: int = 1, product_name: str | None = None) -> BatchResultItem:
     cost_es = round((tok_es / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     cost_en = round((tok_en / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     diff = tok_en - tok_es
@@ -51,6 +59,7 @@ def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result
         review=text_es, tokens_original=tok_es, text_en=text_en, tokens_en=tok_en,
         cost_original_usd=cost_es, cost_en_usd=cost_en, best_lang=best,
         justification=just, classification=classification,
+        frequency=frequency, product_name=product_name
     )
 
 
@@ -58,12 +67,12 @@ def empty_item() -> BatchResultItem:
     return BatchResultItem(
         review="", tokens_original=0, text_en="", tokens_en=0,
         cost_original_usd=0.0, cost_en_usd=0.0, best_lang="",
-        justification="", classification=None,
+        justification="", classification=None, frequency=0, product_name=None
     )
 
 
 def build_summary(results: list[BatchResultItem]) -> EconomicSummary:
-    total = len(results)
+    total = sum(r.frequency for r in results)
     if total == 0:
         return empty_summary()
     sum_orig = sum(r.tokens_original for r in results)
@@ -73,8 +82,8 @@ def build_summary(results: list[BatchResultItem]) -> EconomicSummary:
     daily_orig = (avg_orig / 1_000_000) * COST_PER_MILLION_TOKENS * REVIEWS_10K
     daily_en = (avg_en / 1_000_000) * COST_PER_MILLION_TOKENS * REVIEWS_10K
     daily_savings = daily_orig - daily_en
-    en_better = sum(1 for r in results if r.best_lang == "en")
-    es_better = sum(1 for r in results if r.best_lang == "es")
+    en_better = sum(r.frequency for r in results if r.best_lang == "en")
+    es_better = sum(r.frequency for r in results if r.best_lang == "es")
     return EconomicSummary(
         total_reviews=total,
         total_tokens_original=sum_orig,
@@ -99,72 +108,66 @@ def empty_summary() -> EconomicSummary:
     )
 
 
-import re
-
-def _normalize_key(text: str) -> str:
-    # Normalización rápida: minúsculas, elimina puntuación repetida y espacios extras
-    clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
-    return clean if clean else text.lower().strip()
-
-
 async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens: bool, deepl_api_key: str = "", task_id: str | None = None) -> BatchUploadResponse:
-    raw_texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
-    clean_texts = [t.strip() for t in raw_texts if t.strip()]
-
-    # Deduplicación inteligente con clave de normalización
-    norm_to_original: dict[str, str] = {}
-    for t in clean_texts:
-        k = _normalize_key(t)
-        if k not in norm_to_original:
-            norm_to_original[k] = t
-
-    uniques = list(norm_to_original.values())
-
+    prod_col = detect_product_column(df)
+    
     if task_id:
-        savings_count = len(clean_texts) - len(uniques)
-        add_log(task_id, f"Deduplicación inteligente completada: {len(uniques)} patrones únicos de {len(clean_texts)} totales (Ahorro del {(savings_count / max(1, len(clean_texts))) * 100:.1f}% en llamadas).")
-        add_log(task_id, f"Traduciendo {len(uniques)} patrones únicos con inferencia vectorial MarianMT C++ en lotes de 2048...")
+        add_log(task_id, f"Agrupando reseñas por contexto semántico y producto...")
 
     start_time = time.time()
-    batch_chunk_size = 2048
-    translations = []
+    
+    # 1. Agrupar por Producto (si existe) o procesar globalmente
+    grouped_clusters = []
+    if prod_col:
+        for prod_name, sub_df in df.groupby(prod_col):
+            sub_texts = [str(t) if pd.notna(t) else "" for t in sub_df[text_col]]
+            sub_texts = [t.strip() for t in sub_texts if t.strip()]
+            clusters = cluster_semantic_reviews(sub_texts)
+            for c in clusters:
+                c["product_name"] = str(prod_name)
+            grouped_clusters.extend(clusters)
+    else:
+        raw_texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
+        clean_texts = [t.strip() for t in raw_texts if t.strip()]
+        clusters = cluster_semantic_reviews(clean_texts)
+        for c in clusters:
+            c["product_name"] = "General"
+        grouped_clusters.extend(clusters)
 
-    for i in range(0, len(uniques), batch_chunk_size):
-        chunk = uniques[i : i + batch_chunk_size]
-        chunk_trans = await translate_ctranslate2_batch(chunk)
-        translations.extend(chunk_trans)
+    if task_id:
+        add_log(task_id, f"Agrupamiento semántico completado: {len(grouped_clusters)} clusters identificados de {len(df)} reseñas totales.")
+        add_log(task_id, f"Traduciendo {len(grouped_clusters)} frases núcleo con CTranslate2 C++...")
 
-        if task_id:
-            completed = min(i + batch_chunk_size, len(uniques))
-            elapsed = time.time() - start_time
-            rate = completed / max(0.1, elapsed)
-            remaining = (len(uniques) - completed) / max(0.1, rate)
-            add_log(task_id, f"  ✓ Únicas procesadas: {completed}/{len(uniques)} ({rate:.1f} req/s) - Tiempo est. restante: {remaining:.1f}s")
+    # 2. Traducir ÚNICAMENTE las frases núcleo canónicas de cada cluster
+    canonical_texts = [c["canonical_es"] for c in grouped_clusters]
+    translations = await translate_ctranslate2_batch(canonical_texts)
 
-    # Clasificación rápida vectorizada en bloque para todas las frases únicas
-    classify_inputs = translations if optent_tokens else uniques
+    # 3. Clasificación rápida por palabras clave sobre las traducciones/núcleos
     from app.services.classifier import classify_batch_fast
+    classify_inputs = translations if optent_tokens else canonical_texts
     class_results = classify_batch_fast(classify_inputs)
 
-    # Mapear tanto la clave exacta como la clave normalizada
-    norm_cache = {}
-    for txt, trans, cr in zip(uniques, translations, class_results):
-        item = make_item(txt, trans, count_tokens(txt), count_tokens(trans), cr)
-        norm_cache[_normalize_key(txt)] = item
-
+    # 4. Construir resultados ejecutivos agregados
     results = []
-    for t in raw_texts:
-        t_clean = t.strip()
-        if not t_clean:
-            results.append(empty_item())
-        else:
-            norm_k = _normalize_key(t_clean)
-            if norm_k in norm_cache:
-                base_item = norm_cache[norm_k]
-                # Preservar el texto original de la fila específica en el objeto de resultado
-                results.append(make_item(t_clean, base_item.text_en, count_tokens(t_clean), base_item.tokens_en, base_item.classification.model_dump() if base_item.classification else None))
-            else:
-                results.append(empty_item())
+    for cluster, trans, cr in zip(grouped_clusters, translations, class_results):
+        canon_es = cluster["canonical_es"]
+        count = cluster["count"]
+        prod = cluster.get("product_name", "General")
+        
+        # Calcular tokens totales acumulados para todas las reseñas del cluster
+        orig_tokens_total = sum(count_tokens(t) for t in cluster["original_texts"])
+        en_tokens_total = count_tokens(trans) * count
+        
+        item = make_item(
+            text_es=canon_es,
+            text_en=trans,
+            tok_es=orig_tokens_total,
+            tok_en=en_tokens_total,
+            class_result=cr,
+            frequency=count,
+            product_name=prod
+        )
+        results.append(item)
 
     total_elapsed = time.time() - start_time
     total_rate = len(df) / max(0.1, total_elapsed)
@@ -178,7 +181,7 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
 
 async def run_batch_background_bytes(task_id: str, content: bytes, filename: str, optent_tokens: bool, deepl_api_key: str):
     add_log(task_id, f"Inicio: {datetime.now().strftime('%H:%M:%S')}")
-    add_log(task_id, f"Iniciando procesamiento batch (engine=ctranslate2)...")
+    add_log(task_id, f"Iniciando procesamiento batch (Agrupamiento Semántico + CTranslate2)...")
     add_log(task_id, f"Leyendo archivo: {filename}")
     try:
         if filename.endswith(".csv"):
@@ -190,7 +193,7 @@ async def run_batch_background_bytes(task_id: str, content: bytes, filename: str
 
         response = await process_batch_dataframe(df, text_col, optent_tokens, deepl_api_key, task_id=task_id)
         summary = response.economic_summary
-        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas, ahorro mensual estimado: ${summary.monthly_savings_10k}")
+        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas en {len(response.results)} clusters, ahorro mensual estimado: ${summary.monthly_savings_10k}")
         add_log(task_id, "Proceso completado.")
         set_result(task_id, response)
     except Exception as e:

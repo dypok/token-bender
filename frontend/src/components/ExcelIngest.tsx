@@ -154,30 +154,28 @@ export default function ExcelIngest() {
   const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null) => {
     const wb = XLSX.utils.book_new()
     const rows = res.map((r) => ({
-      'Rese\u00f1a original': r.review,
-      'Tokens original': r.tokens_original,
-      'Rese\u00f1a en ingl\u00e9s': r.text_en,
-      'Tokens ingl\u00e9s': r.tokens_en,
+      'Producto': r.product_name || 'General',
+      'Rese\u00f1a N\u00facleo (Espa\u00f1ol)': r.review,
+      'Traducci\u00f3n N\u00facleo (Ingl\u00e9s)': r.text_en,
+      'Frecuencia / Rese\u00f1as Similares': r.frequency || 1,
+      'Tokens Total ES': r.tokens_original,
+      'Tokens Total EN': r.tokens_en,
       'Mejor idioma': r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : 'Igual',
-      'Justificaci\u00f3n': r.justification,
-      'Error type': r.classification?.error_type ?? '',
-      'Component': r.classification?.component ?? '',
+      'Tipo de Error': r.classification?.error_type ?? '',
+      'Componente': r.classification?.component ?? '',
     }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'An\u00e1lisis de costos')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Resumen de Costos por Cluster')
     if (sum) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
         { M\u00e9trica: 'Total rese\u00f1as procesadas', Valor: sum.total_reviews },
+        { M\u00e9trica: 'Clusters sem\u00e1nticos identificados', Valor: res.length },
         { M\u00e9trica: 'Total tokens (original)', Valor: sum.total_tokens_original },
         { M\u00e9trica: 'Total tokens (ingl\u00e9s)', Valor: sum.total_tokens_en },
-        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (original)', Valor: sum.avg_tokens_original },
-        { M\u00e9trica: 'Promedio tokens/rese\u00f1a (ingl\u00e9s)', Valor: sum.avg_tokens_en },
-        { M\u00e9trica: 'Costo diario original (10k res/d\u00eda)', Valor: `$${sum.daily_cost_original_10k}` },
-        { M\u00e9trica: 'Costo diario ingl\u00e9s (10k res/d\u00eda)', Valor: `$${sum.daily_cost_en_10k}` },
         { M\u00e9trica: 'Ahorro diario (10k res/d\u00eda)', Valor: `$${sum.daily_savings_10k}` },
         { M\u00e9trica: 'Ahorro mensual (10k res/d\u00eda)', Valor: `$${sum.monthly_savings_10k}` },
       ]), 'Proyecci\u00f3n econ\u00f3mica')
     }
-    XLSX.writeFile(wb, 'analisis_costos_tokenopt.xlsx')
+    XLSX.writeFile(wb, 'resumen_ejecutivo_costos.xlsx')
   }
 
   const handleDownloadExcel = () => downloadExcel(results, summary)
@@ -316,15 +314,17 @@ export default function ExcelIngest() {
         {results.length > 0 && (
           <div className="panel">
             <div className="panel-header flex items-center justify-between">
-              <span>Resultados ({results.length} rese\u00f1as)</span>
+              <span>Resultados ({results.length} clusters semánticos)</span>
               <Button onClick={handleDownloadExcel}>Descargar Excel</Button>
             </div>
             <div className="overflow-x-auto overflow-y-auto max-h-80 text-xs">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-200 sticky top-0">
-                    <th className="border border-gray-300 px-2 py-1 text-left">Rese\u00f1a original</th>
-                    <th className="border border-gray-300 px-2 py-1 text-left">Traducci\u00f3n (EN)</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">Producto</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">Reseña Núcleo (ES)</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">Traducción Núcleo (EN)</th>
+                    <th className="border border-gray-300 px-2 py-1 w-16">Cant.</th>
                     <th className="border border-gray-300 px-2 py-1 w-16">Tok. ES</th>
                     <th className="border border-gray-300 px-2 py-1 w-16">Tok. EN</th>
                     <th className="border border-gray-300 px-2 py-1 w-16">Mejor</th>
@@ -334,16 +334,18 @@ export default function ExcelIngest() {
                 </thead>
                 <tbody>
                   {results.map((r, i) => {
-                    const best = r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : '='
+                    const best = r.best_lang === 'en' ? 'Inglés' : r.best_lang === 'es' ? 'Español' : '='
                     return (
                       <tr key={i} className={i % 2 ? 'bg-gray-100' : ''}>
+                        <td className="border border-gray-300 px-2 py-1 font-semibold">{r.product_name || 'General'}</td>
                         <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.review}>{r.review}</td>
                         <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.text_en}>{r.text_en}</td>
+                        <td className="border border-gray-300 px-2 py-1 text-center font-bold text-blue-600">{r.frequency || 1}</td>
                         <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_original}</td>
                         <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_en}</td>
                         <td className={`border border-gray-300 px-2 py-1 font-semibold ${r.best_lang === 'en' ? 'text-green-700' : r.best_lang === 'es' ? 'text-red-700' : ''}`}>{best}</td>
-                        <td className="border border-gray-300 px-2 py-1">{r.classification?.error_type ?? '\u2014'}</td>
-                        <td className="border border-gray-300 px-2 py-1">{r.classification?.component ?? '\u2014'}</td>
+                        <td className="border border-gray-300 px-2 py-1">{r.classification?.error_type ?? '—'}</td>
+                        <td className="border border-gray-300 px-2 py-1">{r.classification?.component ?? '—'}</td>
                       </tr>
                     )
                   })}
