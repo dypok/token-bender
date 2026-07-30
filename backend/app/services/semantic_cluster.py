@@ -12,20 +12,50 @@ INTENTION_LABELS = {
 }
 
 INTENTION_KEYWORDS = {
-    1: ["cierra", "crashea", "explota", "muere", "cierre", "crash", "inusable", "pésima", "pésimo", "terrible", "horrible", "inútil", "basura", "estafa"],
-    2: ["bug", "error", "fallo", "falla", "red", "wifi", "conexion", "internet", "servidor", "login", "pago", "pagar", "tarjeta", "sesión"],
-    3: ["lenta", "lento", "tilda", "congela", "cargando", "pantalla", "botón", "interfaz", "ui", "regular", "normal", "pesada", "aceptable"],
-    4: ["bueno", "buena", "útil", "bien", "mejora", "funciona", "sugerencia", "podría", "detalles"],
-    5: ["excelente", "genial", "fantástico", "increíble", "me encanta", "perfecto", "super", "buenísimo", "maravilla", "10/10", "top"]
+    1: [
+        "cierra", "crashea", "explota", "muere", "cierre", "crash", "inusable", 
+        "pésima", "pésimo", "terrible", "horrible", "inútil", "basura", "estafa", 
+        "porquería", "dinero tirado", "peor", "asco", "defectuoso", "no sirve"
+    ],
+    2: [
+        "bug", "error", "fallo", "falla", "red", "wifi", "conexion", "internet", 
+        "servidor", "login", "pago", "pagar", "tarjeta", "sesión", "no me gustó", 
+        "esperaba más", "mala calidad", "malo", "mala", "defecto", "no abre", 
+        "problema", "dañado", "decepcion", "decepción"
+    ],
+    3: [
+        "lenta", "lento", "tilda", "congela", "cargando", "pantalla", "botón", 
+        "interfaz", "ui", "regular", "normal", "pesada", "aceptable", "más o menos", 
+        "mediocre", "cumple a medias", "regularcito", "regularcita"
+    ],
+    4: [
+        "bueno", "buena", "útil", "bien", "mejora", "funciona", "sugerencia", 
+        "podría", "detalles", "bonito", "bonita", "recomendable", "cumple", 
+        "me sirvió", "satisfecho", "satisfecha"
+    ],
+    5: [
+        "excelente", "genial", "fantástico", "increíble", "me encanta", "perfecto", 
+        "perfecta", "super", "buenísimo", "buenísima", "maravilla", "10/10", "top", 
+        "encantado", "encantada", "magnífico", "magnífica", "lo mejor"
+    ]
 }
 
 
 def classify_intention_state(text: str) -> int:
     text_lower = text.lower()
-    for stars in [1, 2, 3, 5, 4]:
+    
+    # 1. Probar en orden explícito de mayor a menor gravedad / impacto
+    for stars in [1, 5, 2, 4, 3]:
         keywords = INTENTION_KEYWORDS[stars]
         if any(k in text_lower for k in keywords):
             return stars
+            
+    # 2. Análisis heurístico secundario si no coincide keyword exacta
+    if any(neg in text_lower for neg in ["no ", "sin ", "mal", "pésim"]):
+        return 2
+    if any(pos in text_lower for pos in ["gran", "buen", "excelent", "gust"]):
+        return 4
+        
     return 3
 
 
