@@ -6,11 +6,11 @@ import io
 from fastapi import UploadFile
 from app.models.schemas import (
     BatchResultItem, BatchUploadResponse,
-    Classification, EconomicSummary, COST_PER_MILLION_TOKENS
+    EconomicSummary, COST_PER_MILLION_TOKENS
 )
 from app.services.tokenizer import count_tokens
 from app.services.ctranslate_service import translate_ctranslate2_batch
-from app.services.semantic_cluster import cluster_by_5_intentions, INTENTION_STATES
+from app.services.semantic_cluster import cluster_by_exact_5_intentions
 from app.batch_tasks import add_log, set_result
 
 REVIEWS_10K = 10000
@@ -39,7 +39,7 @@ def detect_product_column(df: pd.DataFrame) -> str | None:
     return None
 
 
-def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None, frequency: int = 1, product_name: str | None = None, stars: int = 3) -> BatchResultItem:
+def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, frequency: int = 1, product_name: str | None = None, stars: int = 3) -> BatchResultItem:
     cost_es = round((tok_es / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     cost_en = round((tok_en / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     diff = tok_en - tok_es
@@ -52,13 +52,11 @@ def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result
     else:
         best = "igual"
         just = "Ambos idiomas tienen el mismo costo de tokens"
-    classification = None
-    if class_result and class_result.get("error_type") and class_result.get("component"):
-        classification = Classification(**class_result)
+        
     return BatchResultItem(
         review=text_es, tokens_original=tok_es, text_en=text_en, tokens_en=tok_en,
         cost_original_usd=cost_es, cost_en_usd=cost_en, best_lang=best,
-        justification=just, classification=classification,
+        justification=just, classification=None,
         frequency=frequency, product_name=product_name, stars=stars
     )
 
@@ -75,7 +73,6 @@ def build_summary(results: list[BatchResultItem]) -> EconomicSummary:
     total = sum(r.frequency for r in results)
     if total == 0:
         return empty_summary()
-    # Métricas basadas en la tokenización individual de la frase resumen por su frecuencia
     sum_orig = sum(r.tokens_original * r.frequency for r in results)
     sum_en = sum(r.tokens_en * r.frequency for r in results)
     avg_orig = round(sum_orig / total, 1)
@@ -113,53 +110,46 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
     prod_col = detect_product_column(df)
     
     if task_id:
-        add_log(task_id, f"Clasificando reseñas en 5 Estados de Intención por producto...")
+        add_log(task_id, f"Agrupando reseñas en exactamente 5 intenciones por producto...")
 
     start_time = time.time()
     
-    # 1. Agrupar reseñas en los 5 Estados de Intención por Producto
     grouped_clusters = []
     if prod_col:
         for prod_name, sub_df in df.groupby(prod_col):
             sub_texts = [str(t) if pd.notna(t) else "" for t in sub_df[text_col]]
             sub_texts = [t.strip() for t in sub_texts if t.strip()]
-            clusters = cluster_by_5_intentions(sub_texts)
+            clusters = cluster_by_exact_5_intentions(sub_texts)
             for c in clusters:
                 c["product_name"] = str(prod_name)
             grouped_clusters.extend(clusters)
     else:
         raw_texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
         clean_texts = [t.strip() for t in raw_texts if t.strip()]
-        clusters = cluster_by_5_intentions(clean_texts)
+        clusters = cluster_by_exact_5_intentions(clean_texts)
         for c in clusters:
             c["product_name"] = "General"
         grouped_clusters.extend(clusters)
 
     if task_id:
-        add_log(task_id, f"Agrupamiento completado: {len(grouped_clusters)} estados de intención identificados en {len(df)} reseñas.")
-        add_log(task_id, f"Traduciendo {len(grouped_clusters)} resúmenes únicos con CTranslate2 C++...")
+        add_log(task_id, f"Agrupamiento completado: {len(grouped_clusters)} intenciones identificadas en {len(df)} reseñas.")
+        add_log(task_id, f"Ejecutando {len(grouped_clusters)} traducciones resumen con CTranslate2 C++...")
 
-    # 2. Traducir ÚNICAMENTE las 5 frases resumen canónicas por producto
+    # Traducir ÚNICAMENTE la frase resumen de cada intención por producto
     canonical_texts = [c["canonical_es"] for c in grouped_clusters]
     translations = await translate_ctranslate2_batch(canonical_texts)
 
-    # 3. Clasificación rápida por palabras clave sobre los resúmenes
-    from app.services.classifier import classify_batch_fast
-    classify_inputs = translations if optent_tokens else canonical_texts
-    class_results = classify_batch_fast(classify_inputs)
-
-    # 4. Construir resultados agregados por Estado de Intención
     results = []
     product_star_totals = {}
     product_counts = {}
 
-    for cluster, trans, cr in zip(grouped_clusters, translations, class_results):
+    for cluster, trans in zip(grouped_clusters, translations):
         canon_es = cluster["canonical_es"]
         count = cluster["count"]
         prod = cluster.get("product_name", "General")
         stars = cluster["stars"]
         
-        # Gasto de tokens basado ÚNICAMENTE en la reseña resumen traducida única
+        # Conteo de tokens de la frase traducida única de la fila
         orig_tokens = count_tokens(canon_es)
         en_tokens = count_tokens(trans)
         
@@ -168,18 +158,16 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
             text_en=trans,
             tok_es=orig_tokens,
             tok_en=en_tokens,
-            class_result=cr,
             frequency=count,
             product_name=prod,
             stars=stars
         )
         results.append(item)
 
-        # Acumular para el rating promedio del producto
+        # Promedio ponderado de estrellas por producto
         product_star_totals[prod] = product_star_totals.get(prod, 0) + (stars * count)
         product_counts[prod] = product_counts.get(prod, 0) + count
 
-    # Calcular rating promedio (1.00 a 5.00 ⭐) por producto
     product_ratings = {
         p: round(product_star_totals[p] / max(1, product_counts[p]), 2)
         for p in product_counts
@@ -197,7 +185,7 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
 
 async def run_batch_background_bytes(task_id: str, content: bytes, filename: str, optent_tokens: bool, deepl_api_key: str):
     add_log(task_id, f"Inicio: {datetime.now().strftime('%H:%M:%S')}")
-    add_log(task_id, f"Iniciando procesamiento batch (5 Estados de Intención + CTranslate2)...")
+    add_log(task_id, f"Iniciando procesamiento batch (5 Intenciones por Producto + CTranslate2)...")
     add_log(task_id, f"Leyendo archivo: {filename}")
     try:
         if filename.endswith(".csv"):
@@ -209,7 +197,7 @@ async def run_batch_background_bytes(task_id: str, content: bytes, filename: str
 
         response = await process_batch_dataframe(df, text_col, optent_tokens, deepl_api_key, task_id=task_id)
         summary = response.economic_summary
-        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas en {len(response.results)} estados, ahorro mensual estimado: ${summary.monthly_savings_10k}")
+        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas en {len(response.results)} intenciones, ahorro mensual estimado: ${summary.monthly_savings_10k}")
         add_log(task_id, "Proceso completado.")
         set_result(task_id, response)
     except Exception as e:

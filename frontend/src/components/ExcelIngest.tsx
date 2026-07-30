@@ -159,20 +159,18 @@ export default function ExcelIngest() {
   const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null, ratings?: Record<string, number>) => {
     const wb = XLSX.utils.book_new()
     
-    // Hoja 1: Resumen de Costos por Cluster
+    // Hoja 1: Resumen de Intenciones por Producto
     const rows = res.map((r) => ({
       'Producto': r.product_name || 'General',
-      'Rese\u00f1a N\u00facleo (Espa\u00f1ol)': r.review,
-      'Traducci\u00f3n N\u00facleo (Ingl\u00e9s)': r.text_en,
-      'Frecuencia / Rese\u00f1as Similares': r.frequency || 1,
-      'Estrellas Estimadas': `${'⭐'.repeat(r.stars || 3)} (${r.stars || 3}/5)`,
+      'Intenci\u00f3n (Calificaci\u00f3n)': `${'⭐'.repeat(r.stars || 3)} (${r.stars || 3}/5)`,
+      'Rese\u00f1a Resumen (Espa\u00f1ol)': r.review,
+      'Traducci\u00f3n Resumen (Ingl\u00e9s)': r.text_en,
+      'Cantidad Rese\u00f1as Agrupadas': r.frequency || 1,
       'Tokens Resumen ES': r.tokens_original,
       'Tokens Resumen EN': r.tokens_en,
       'Mejor idioma': r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : 'Igual',
-      'Tipo de Error': r.classification?.error_type ?? '',
-      'Componente': r.classification?.component ?? '',
     }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Resumen de Costos por Cluster')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Resumen de Intenciones')
 
     // Hoja 2: Rating 5 Estrellas por Producto
     const ratingsData = ratings || productRatings
