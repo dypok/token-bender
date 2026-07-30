@@ -51,7 +51,8 @@ async def test_batch_start_and_progress_flow(client):
 
     assert done is True
     assert resultData is not None
-    assert len(resultData["results"]) == 3
-    # Verificar que el segundo elemento (duplicado) tenga la misma traducción
-    assert resultData["results"][0]["text_en"] == resultData["results"][1]["text_en"]
+    # Con el agrupamiento semántico, las 3 reseñas de entrada se consolidan en 2 clusters ejecutivos
+    assert len(resultData["results"]) == 2
+    # El cluster "Excelente producto..." contiene frecuencia=2 por los duplicados
+    assert resultData["results"][0]["frequency"] == 2 or resultData["results"][1]["frequency"] == 2
     assert resultData["results"][0]["text_en"] != ""
