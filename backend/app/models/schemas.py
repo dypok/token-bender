@@ -91,6 +91,7 @@ class BatchResultItem(BaseModel):
     classification: Optional[Classification] = None
     frequency: int = 1
     product_name: Optional[str] = None
+    stars: int = 3
 
 
 class EconomicSummary(BaseModel):
@@ -110,6 +111,7 @@ class EconomicSummary(BaseModel):
 class BatchUploadResponse(BaseModel):
     results: list[BatchResultItem]
     economic_summary: EconomicSummary
+    product_ratings: Optional[dict[str, float]] = None
 
 
 class ConfigStatusResponse(BaseModel):

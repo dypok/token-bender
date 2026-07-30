@@ -39,7 +39,22 @@ def detect_product_column(df: pd.DataFrame) -> str | None:
     return None
 
 
-def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None, frequency: int = 1, product_name: str | None = None) -> BatchResultItem:
+def _assign_stars(error_type: str | None) -> int:
+    if not error_type:
+        return 3
+    err = error_type.lower()
+    if err == "crash":
+        return 1
+    elif err in ["bug", "network"]:
+        return 2
+    elif err in ["performance", "ui"]:
+        return 3
+    elif err == "feature_request":
+        return 4
+    return 3
+
+
+def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None, frequency: int = 1, product_name: str | None = None, stars: int = 3) -> BatchResultItem:
     cost_es = round((tok_es / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     cost_en = round((tok_en / 1_000_000) * COST_PER_MILLION_TOKENS, 6)
     diff = tok_en - tok_es
@@ -59,7 +74,7 @@ def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result
         review=text_es, tokens_original=tok_es, text_en=text_en, tokens_en=tok_en,
         cost_original_usd=cost_es, cost_en_usd=cost_en, best_lang=best,
         justification=just, classification=classification,
-        frequency=frequency, product_name=product_name
+        frequency=frequency, product_name=product_name, stars=stars
     )
 
 
@@ -67,7 +82,7 @@ def empty_item() -> BatchResultItem:
     return BatchResultItem(
         review="", tokens_original=0, text_en="", tokens_en=0,
         cost_original_usd=0.0, cost_en_usd=0.0, best_lang="",
-        justification="", classification=None, frequency=0, product_name=None
+        justification="", classification=None, frequency=0, product_name=None, stars=3
     )
 
 
@@ -75,8 +90,8 @@ def build_summary(results: list[BatchResultItem]) -> EconomicSummary:
     total = sum(r.frequency for r in results)
     if total == 0:
         return empty_summary()
-    sum_orig = sum(r.tokens_original for r in results)
-    sum_en = sum(r.tokens_en for r in results)
+    sum_orig = sum(r.tokens_original * r.frequency for r in results)
+    sum_en = sum(r.tokens_en * r.frequency for r in results)
     avg_orig = round(sum_orig / total, 1)
     avg_en = round(sum_en / total, 1)
     daily_orig = (avg_orig / 1_000_000) * COST_PER_MILLION_TOKENS * REVIEWS_10K
@@ -149,25 +164,42 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
 
     # 4. Construir resultados ejecutivos agregados
     results = []
+    product_star_totals = {}
+    product_counts = {}
+
     for cluster, trans, cr in zip(grouped_clusters, translations, class_results):
         canon_es = cluster["canonical_es"]
         count = cluster["count"]
         prod = cluster.get("product_name", "General")
         
-        # Calcular tokens totales acumulados para todas las reseñas del cluster
-        orig_tokens_total = sum(count_tokens(t) for t in cluster["original_texts"])
-        en_tokens_total = count_tokens(trans) * count
+        # Gasto de tokens basado ÚNICAMENTE en la reseña resumen traducida única
+        orig_tokens = count_tokens(canon_es)
+        en_tokens = count_tokens(trans)
+        
+        # Asignar 1-5 estrellas basado en el tipo de error
+        stars = _assign_stars(cr.get("error_type") if cr else None)
         
         item = make_item(
             text_es=canon_es,
             text_en=trans,
-            tok_es=orig_tokens_total,
-            tok_en=en_tokens_total,
+            tok_es=orig_tokens,
+            tok_en=en_tokens,
             class_result=cr,
             frequency=count,
-            product_name=prod
+            product_name=prod,
+            stars=stars
         )
         results.append(item)
+
+        # Acumular para el rating promedio del producto
+        product_star_totals[prod] = product_star_totals.get(prod, 0) + (stars * count)
+        product_counts[prod] = product_counts.get(prod, 0) + count
+
+    # Calcular rating promedio (1.0 a 5.0 estrellas) por producto
+    product_ratings = {
+        p: round(product_star_totals[p] / max(1, product_counts[p]), 2)
+        for p in product_counts
+    }
 
     total_elapsed = time.time() - start_time
     total_rate = len(df) / max(0.1, total_elapsed)
@@ -176,7 +208,7 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
         add_log(task_id, f"Procesamiento completado en {total_elapsed:.2f}s (Rendimiento efectivo: {total_rate:.1f} reseña/s).")
 
     summary = build_summary(results)
-    return BatchUploadResponse(results=results, economic_summary=summary)
+    return BatchUploadResponse(results=results, economic_summary=summary, product_ratings=product_ratings)
 
 
 async def run_batch_background_bytes(task_id: str, content: bytes, filename: str, optent_tokens: bool, deepl_api_key: str):

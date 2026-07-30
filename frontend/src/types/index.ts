@@ -45,6 +45,7 @@ export interface BatchResult {
   classification?: BatchClassification
   frequency?: number
   product_name?: string
+  stars?: number
 }
 
 export interface EconomicSummary {
@@ -64,4 +65,5 @@ export interface EconomicSummary {
 export interface BatchUploadResponse {
   results: BatchResult[]
   economic_summary: EconomicSummary
+  product_ratings?: Record<string, number>
 }

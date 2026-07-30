@@ -91,7 +91,10 @@ export default function ExcelIngest() {
         if (resultData) {
           setResults(resultData.results)
           setSummary(resultData.economic_summary)
-          downloadExcel(resultData.results, resultData.economic_summary)
+          if (resultData.product_ratings) {
+            setProductRatings(resultData.product_ratings)
+          }
+          downloadExcel(resultData.results, resultData.economic_summary, resultData.product_ratings)
 
           const elapsed = Math.round(performance.now() - start)
           addLog('')
@@ -151,20 +154,38 @@ export default function ExcelIngest() {
     setLoading(false)
   }
 
-  const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null) => {
+  const [productRatings, setProductRatings] = useState<Record<string, number>>({})
+
+  const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null, ratings?: Record<string, number>) => {
     const wb = XLSX.utils.book_new()
+    
+    // Hoja 1: Resumen de Costos por Cluster
     const rows = res.map((r) => ({
       'Producto': r.product_name || 'General',
       'Rese\u00f1a N\u00facleo (Espa\u00f1ol)': r.review,
       'Traducci\u00f3n N\u00facleo (Ingl\u00e9s)': r.text_en,
       'Frecuencia / Rese\u00f1as Similares': r.frequency || 1,
-      'Tokens Total ES': r.tokens_original,
-      'Tokens Total EN': r.tokens_en,
+      'Estrellas Estimadas': `${'⭐'.repeat(r.stars || 3)} (${r.stars || 3}/5)`,
+      'Tokens Resumen ES': r.tokens_original,
+      'Tokens Resumen EN': r.tokens_en,
       'Mejor idioma': r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : 'Igual',
       'Tipo de Error': r.classification?.error_type ?? '',
       'Componente': r.classification?.component ?? '',
     }))
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Resumen de Costos por Cluster')
+
+    // Hoja 2: Rating 5 Estrellas por Producto
+    const ratingsData = ratings || productRatings
+    if (Object.keys(ratingsData).length > 0) {
+      const ratingRows = Object.entries(ratingsData).map(([prod, rating]) => ({
+        'Producto / Aplicaci\u00f3n': prod,
+        'Rating Promedio (1-5 Estrellas)': `${rating} ⭐`,
+        'Estado': rating >= 4.0 ? 'Excelente' : rating >= 3.0 ? 'Aceptable' : 'Atenci\u00f3n Requerida'
+      }))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ratingRows), 'Rating 5 Estrellas por Producto')
+    }
+
+    // Hoja 3: Proyección económica
     if (sum) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
         { M\u00e9trica: 'Total rese\u00f1as procesadas', Valor: sum.total_reviews },
