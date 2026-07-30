@@ -56,9 +56,10 @@ export default function MainWindow() {
             <select
               className="input-aero text-xs"
               value={engine}
-              onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos')}
+              onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos' | 'ctranslate2')}
             >
               <option value="ollama">Ollama (local)</option>
+              <option value="ctranslate2">CTranslate2 / MarianMT (local ultrarrápido)</option>
               <option value="deepl">DeepL (API)</option>
               <option value="google">Google Translate</option>
               <option value="argos">Argos Translate (local)</option>

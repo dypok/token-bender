@@ -18,6 +18,7 @@ async def close_pool():
 
 
 def get_http() -> httpx.AsyncClient:
-    if _client is None:
-        raise RuntimeError("HTTP pool not initialized")
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=5.0))
     return _client

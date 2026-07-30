@@ -3,7 +3,7 @@ import type { AnalyzeResponse } from '../types'
 
 interface AppState {
   inputText: string
-  engine: 'ollama' | 'deepl' | 'google' | 'argos'
+  engine: 'ollama' | 'deepl' | 'google' | 'argos' | 'ctranslate2'
   deeplApiKey: string
   loading: boolean
   result: AnalyzeResponse | null
@@ -11,7 +11,7 @@ interface AppState {
   activePanel: 'analyze' | 'config' | 'excel' | 'projection'
 
   setInputText: (text: string) => void
-  setEngine: (engine: 'ollama' | 'deepl' | 'google' | 'argos') => void
+  setEngine: (engine: 'ollama' | 'deepl' | 'google' | 'argos' | 'ctranslate2') => void
   setDeeplApiKey: (key: string) => void
   setLoading: (loading: boolean) => void
   setResult: (result: AnalyzeResponse | null) => void
@@ -20,7 +20,7 @@ interface AppState {
 }
 
 const storedKey = localStorage.getItem('deepl_api_key') || ''
-const storedEngine = (localStorage.getItem('preferred_engine') as 'ollama' | 'deepl' | 'google' | 'argos') || 'ollama'
+const storedEngine = (localStorage.getItem('preferred_engine') as 'ollama' | 'deepl' | 'google' | 'argos' | 'ctranslate2') || 'ollama'
 
 export const useStore = create<AppState>((set) => ({
   inputText: '',

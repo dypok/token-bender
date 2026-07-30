@@ -53,45 +53,41 @@ async def translate_deepl(text: str, api_key: str, target_lang: str = "EN", sour
         return None
 
 
-async def translate_fallback(text: str, target_lang: str = "en", source_lang: str = "auto") -> str:
+async def translate_fallback(text: str, target_lang: str = "en", source_lang: str = "es") -> str:
     try:
-        result = GoogleTranslator(source=source_lang, target=target_lang).translate(text)
-        return result
-    except Exception:
+        src = "es" if source_lang == "auto" else source_lang
+        result = GoogleTranslator(source=src, target=target_lang).translate(text)
+        return result if result else text
+    except Exception as e:
         return text
 
 
-async def translate(text: str, engine: str, target_lang: str = "en", source_lang: str = "auto", deepl_api_key: str = "") -> tuple[str, str]:
-    if engine == "argos":
+async def translate(text: str, engine: str, target_lang: str = "en", source_lang: str = "es", deepl_api_key: str = "") -> tuple[str, str]:
+    if engine == "ctranslate2":
+        from app.services.ctranslate_service import translate_ctranslate2
+        res = await translate_ctranslate2(text)
+        if res and res.strip() != text.strip():
+            return res, "ctranslate2"
+
+    elif engine == "argos":
         result = await asyncio.to_thread(argos_translate, text, source_lang, target_lang)
-        return result, "argos"
+        if result and result.strip() != text.strip():
+            return result, "argos"
 
-    if engine == "google":
-        result = await translate_fallback(text, target_lang, source_lang)
-        return result, "google"
-
-    if engine == "ollama":
+    elif engine == "ollama":
         result = await translate_ollama(text, target_lang, source_lang)
-        if result:
+        if result and result.strip() != text.strip():
             return result, "ollama"
+
+    elif engine == "deepl" and deepl_api_key:
         result = await translate_deepl(text, deepl_api_key, target_lang, source_lang)
-        if result:
+        if result and result.strip() != text.strip():
             return result, "deepl"
-        result = await translate_fallback(text, target_lang, source_lang)
-        return result, "fallback"
 
-    if engine == "deepl":
-        if deepl_api_key:
-            result = await translate_deepl(text, deepl_api_key, target_lang, source_lang)
-            if result:
-                return result, "deepl"
-        result = await translate_ollama(text, target_lang, source_lang)
-        if result:
-            return result, "ollama"
-        result = await translate_fallback(text, target_lang, source_lang)
-        return result, "fallback"
-
-    return text, "none"
+    # Si el motor seleccionado no está instalado, falló o devolvió el mismo texto en español,
+    # forzar la traducción directa al inglés mediante GoogleTranslator (deep-translator):
+    translated_fallback = await translate_fallback(text, target_lang, source_lang)
+    return translated_fallback, "google"
 
 
 async def check_ollama_status() -> bool:

@@ -62,7 +62,7 @@ export default function ExcelIngest() {
       addLog(`C:\\&gt; Procesando archivo: ${file.name}`, 'cyan')
 
       try {
-        const taskId = await startBatch(file, optimize, engine, deeplApiKey)
+        const taskId = await startBatch(file, optimize, 'ctranslate2', deeplApiKey)
         addLog(`Task ID: ${taskId}`)
         addLog('')
 
@@ -97,16 +97,18 @@ export default function ExcelIngest() {
           addLog('')
           addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
           addLog('')
-          addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
+          addLog('--- RESUMEN ECONÓMICO ---', 'cyan')
           const s = resultData.economic_summary
-          addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
-          addLog(`Promedio tokens/rese\u00f1a (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
+          addLog(`Total reseñas: ${s.total_reviews}`, 'white')
+          addLog(`Promedio tokens/reseña (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
           addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
+          addLog('')
+          addLog('C:\\> Proceso completado.', 'green')
+        } else {
+          addLog('ERROR: El servidor reportó un error durante la ejecución del proceso en lote.', 'red')
         }
-        addLog('')
-        addLog('C:\\&gt; Proceso completado.', 'green')
-      } catch {
-        addLog('ERROR: Fall\u00f3 el procesamiento batch.', 'red')
+      } catch (err: any) {
+        addLog(`ERROR: Falló el procesamiento batch: ${err?.message || err}`, 'red')
       }
 
     } else {
@@ -118,7 +120,7 @@ export default function ExcelIngest() {
       addLog(`C:\\&gt; Escaneando carpeta: ${folderPath}`, 'cyan')
       try {
         start = performance.now()
-        const data = await processFolder(folderPath.trim(), optimize, engine, deeplApiKey)
+        const data = await processFolder(folderPath.trim(), optimize, 'ctranslate2', deeplApiKey)
         const elapsed = Math.round(performance.now() - start)
         setResults(data.results)
         setSummary(data.economic_summary)

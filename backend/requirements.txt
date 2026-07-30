@@ -9,3 +9,11 @@ langdetect
 deep-translator
 faker
 python-multipart
+ctranslate2
+transformers
+sentencepiece
+torch
+sacremoses
+pytest
+pytest-asyncio
+

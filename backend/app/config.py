@@ -1,4 +1,4 @@
-OLLAMA_MODEL = "qwen2.5:14b"
+OLLAMA_MODEL = "llama3:8b"
 OLLAMA_BASE_URL = "http://localhost:11434"
 ENCODING = "o200k_base"
 DEEPL_BASE_URL = "https://api-free.deepl.com/v2/translate"

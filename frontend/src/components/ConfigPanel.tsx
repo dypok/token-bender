@@ -93,9 +93,10 @@ export default function ConfigPanel() {
           <select
             className="input-aero text-xs w-full"
             value={engine}
-            onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos')}
+            onChange={(e) => setEngine(e.target.value as 'ollama' | 'deepl' | 'google' | 'argos' | 'ctranslate2')}
           >
             <option value="ollama">Ollama (local, free)</option>
+            <option value="ctranslate2">CTranslate2 / MarianMT (local ultrarrápido, recomendado)</option>
             <option value="deepl">DeepL (remote, requires API key)</option>
             <option value="google">Google Translate (no key)</option>
             <option value="argos">Argos Translate (local, no key)</option>

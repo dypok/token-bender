@@ -62,10 +62,10 @@ async def classify_combined(text: str) -> dict | None:
         return None
 
 
-async def classify_fallback(text: str) -> dict:
+def classify_fallback_fast(text: str) -> dict:
     text_lower = text.lower()
     error_type = "bug"
-    if any(w in text_lower for w in ["cierra", "cierra", "crash", "crashea", "explota", "muere", "cierre"]):
+    if any(w in text_lower for w in ["cierra", "crashea", "explota", "muere", "cierre", "crash"]):
         error_type = "crash"
     elif any(w in text_lower for w in ["lenta", "lento", "tilda", "congela", "cargando"]):
         error_type = "performance"
@@ -93,6 +93,14 @@ async def classify_fallback(text: str) -> dict:
             break
 
     return {"error_type": error_type, "component": component}
+
+
+def classify_batch_fast(texts: list[str]) -> list[dict]:
+    return [classify_fallback_fast(t) for t in texts]
+
+
+async def classify_fallback(text: str) -> dict:
+    return classify_fallback_fast(text)
 
 
 async def classify(text: str, engine: str, deepl_api_key: str = "") -> tuple[dict, str]:

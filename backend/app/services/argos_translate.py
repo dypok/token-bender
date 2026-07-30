@@ -1,6 +1,11 @@
 import math
-import argostranslate.package
-import argostranslate.translate
+
+try:
+    import argostranslate.package
+    import argostranslate.translate
+    HAS_ARGOS = True
+except ImportError:
+    HAS_ARGOS = False
 
 _es_to_en = None
 _en_to_es = None
@@ -8,6 +13,8 @@ _en_to_es = None
 
 def init_packages():
     global _es_to_en, _en_to_es
+    if not HAS_ARGOS:
+        return None, None
     if _es_to_en is None:
         try:
             _es_to_en = argostranslate.translate.get_translation_from_codes("es", "en")
@@ -26,6 +33,8 @@ def init_packages():
 
 def translate(text: str, source_lang: str = "es", target_lang: str = "en") -> str:
     es_to_en, en_to_es = init_packages()
+    if not es_to_en or not en_to_es:
+        return text
     if source_lang == "es" and target_lang == "en":
         return es_to_en.translate(text)
     if source_lang == "en" and target_lang == "es":

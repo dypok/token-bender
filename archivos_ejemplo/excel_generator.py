@@ -4,7 +4,7 @@ from faker import Faker
 
 
 def generar_resenas_excel(
-    nombre_archivo="resenas_productos_50k.xlsx", num_filas=50000
+    nombre_archivo="resenas_productos.xlsx", num_filas=50000
 ):
     print(f"Generando {num_filas} registros fake en español...")
 
