@@ -99,16 +99,31 @@ def empty_summary() -> EconomicSummary:
     )
 
 
+import re
+
+def _normalize_key(text: str) -> str:
+    # Normalización rápida: minúsculas, elimina puntuación repetida y espacios extras
+    clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
+    return clean if clean else text.lower().strip()
+
+
 async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens: bool, deepl_api_key: str = "", task_id: str | None = None) -> BatchUploadResponse:
     raw_texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
     clean_texts = [t.strip() for t in raw_texts if t.strip()]
 
-    uniques = list(dict.fromkeys(clean_texts))
+    # Deduplicación inteligente con clave de normalización
+    norm_to_original: dict[str, str] = {}
+    for t in clean_texts:
+        k = _normalize_key(t)
+        if k not in norm_to_original:
+            norm_to_original[k] = t
+
+    uniques = list(norm_to_original.values())
 
     if task_id:
         savings_count = len(clean_texts) - len(uniques)
-        add_log(task_id, f"Deduplicación completada: {len(uniques)} textos únicos de {len(clean_texts)} totales (Ahorro del {(savings_count / max(1, len(clean_texts))) * 100:.1f}% en llamadas).")
-        add_log(task_id, f"Traduciendo {len(uniques)} textos únicos con inferencia vectorial MarianMT C++ en lotes de 2048...")
+        add_log(task_id, f"Deduplicación inteligente completada: {len(uniques)} patrones únicos de {len(clean_texts)} totales (Ahorro del {(savings_count / max(1, len(clean_texts))) * 100:.1f}% en llamadas).")
+        add_log(task_id, f"Traduciendo {len(uniques)} patrones únicos con inferencia vectorial MarianMT C++ en lotes de 2048...")
 
     start_time = time.time()
     batch_chunk_size = 2048
@@ -131,10 +146,11 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
     from app.services.classifier import classify_batch_fast
     class_results = classify_batch_fast(classify_inputs)
 
-    cache = {
-        txt: make_item(txt, trans, count_tokens(txt), count_tokens(trans), cr)
-        for txt, trans, cr in zip(uniques, translations, class_results)
-    }
+    # Mapear tanto la clave exacta como la clave normalizada
+    norm_cache = {}
+    for txt, trans, cr in zip(uniques, translations, class_results):
+        item = make_item(txt, trans, count_tokens(txt), count_tokens(trans), cr)
+        norm_cache[_normalize_key(txt)] = item
 
     results = []
     for t in raw_texts:
@@ -142,7 +158,13 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
         if not t_clean:
             results.append(empty_item())
         else:
-            results.append(cache[t_clean])
+            norm_k = _normalize_key(t_clean)
+            if norm_k in norm_cache:
+                base_item = norm_cache[norm_k]
+                # Preservar el texto original de la fila específica en el objeto de resultado
+                results.append(make_item(t_clean, base_item.text_en, count_tokens(t_clean), base_item.tokens_en, base_item.classification.model_dump() if base_item.classification else None))
+            else:
+                results.append(empty_item())
 
     total_elapsed = time.time() - start_time
     total_rate = len(df) / max(0.1, total_elapsed)
