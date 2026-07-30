@@ -335,7 +335,7 @@ export default function ExcelIngest() {
         {results.length > 0 && (
           <div className="panel">
             <div className="panel-header flex items-center justify-between">
-              <span>Resultados ({results.length} clusters semánticos)</span>
+              <span>Resultados ({results.length} estados de intención por producto)</span>
               <Button onClick={handleDownloadExcel}>Descargar Excel</Button>
             </div>
             <div className="overflow-x-auto overflow-y-auto max-h-80 text-xs">
@@ -343,30 +343,29 @@ export default function ExcelIngest() {
                 <thead>
                   <tr className="bg-gray-200 sticky top-0">
                     <th className="border border-gray-300 px-2 py-1 text-left">Producto</th>
-                    <th className="border border-gray-300 px-2 py-1 text-left">Reseña Núcleo (ES)</th>
-                    <th className="border border-gray-300 px-2 py-1 text-left">Traducción Núcleo (EN)</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16">Cant.</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16">Tok. ES</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16">Tok. EN</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16">Mejor</th>
-                    <th className="border border-gray-300 px-2 py-1 w-20">Error</th>
-                    <th className="border border-gray-300 px-2 py-1 w-24">Componente</th>
+                    <th className="border border-gray-300 px-2 py-1 text-center w-24">Intención ⭐</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">Reseña Resumen (ES)</th>
+                    <th className="border border-gray-300 px-2 py-1 text-left">Traducción Resumen (EN)</th>
+                    <th className="border border-gray-300 px-2 py-1 w-16 text-center">Cant.</th>
+                    <th className="border border-gray-300 px-2 py-1 w-16 text-right">Tok. ES</th>
+                    <th className="border border-gray-300 px-2 py-1 w-16 text-right">Tok. EN</th>
+                    <th className="border border-gray-300 px-2 py-1 w-16 text-center">Mejor</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map((r, i) => {
                     const best = r.best_lang === 'en' ? 'Inglés' : r.best_lang === 'es' ? 'Español' : '='
+                    const starText = '⭐'.repeat(r.stars || 3)
                     return (
                       <tr key={i} className={i % 2 ? 'bg-gray-100' : ''}>
                         <td className="border border-gray-300 px-2 py-1 font-semibold">{r.product_name || 'General'}</td>
+                        <td className="border border-gray-300 px-2 py-1 text-center font-bold text-amber-600">{starText} ({r.stars || 3}/5)</td>
                         <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.review}>{r.review}</td>
                         <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.text_en}>{r.text_en}</td>
                         <td className="border border-gray-300 px-2 py-1 text-center font-bold text-blue-600">{r.frequency || 1}</td>
                         <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_original}</td>
                         <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_en}</td>
-                        <td className={`border border-gray-300 px-2 py-1 font-semibold ${r.best_lang === 'en' ? 'text-green-700' : r.best_lang === 'es' ? 'text-red-700' : ''}`}>{best}</td>
-                        <td className="border border-gray-300 px-2 py-1">{r.classification?.error_type ?? '—'}</td>
-                        <td className="border border-gray-300 px-2 py-1">{r.classification?.component ?? '—'}</td>
+                        <td className={`border border-gray-300 px-2 py-1 font-semibold text-center ${r.best_lang === 'en' ? 'text-green-700' : r.best_lang === 'es' ? 'text-red-700' : ''}`}>{best}</td>
                       </tr>
                     )
                   })}

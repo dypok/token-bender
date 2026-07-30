@@ -3,18 +3,41 @@ from typing import List, Dict, Tuple
 from collections import defaultdict
 
 
+INTENTION_STATES = {
+    1: {"name": "1 ⭐ - Muy Malo", "stars": 1, "keywords": ["cierra", "crashea", "explota", "muere", "cierre", "crash", "inusable", "pésima", "pésimo", "terrible", "horrible", "inútil", "basura", "estafa"]},
+    2: {"name": "2 ⭐ - Malo", "stars": 2, "keywords": ["bug", "error", "fallo", "falla", "red", "wifi", "conexion", "internet", "servidor", "login", "pago", "pagar", "tarjeta", "sesión"]},
+    3: {"name": "3 ⭐ - Aceptable", "stars": 3, "keywords": ["lenta", "lento", "tilda", "congela", "cargando", "pantalla", "botón", "interfaz", "ui", "regular", "normal", "pesada", "aceptable"]},
+    4: {"name": "4 ⭐ - Bueno", "stars": 4, "keywords": ["bueno", "buena", "útil", "bien", "mejora", "funciona", "sugerencia", "podría", "detalles"]},
+    5: {"name": "5 ⭐ - Muy Bueno", "stars": 5, "keywords": ["excelente", "genial", "fantástico", "increíble", "me encanta", "perfecto", "super", "buenísimo", "maravilla", "10/10", "top"]}
+}
+
+
+def classify_intention_state(text: str) -> int:
+    """
+    Clasifica una reseña individual en uno de los 5 estados de intención (1-5 estrellas).
+    """
+    text_lower = text.lower()
+    
+    # 1. Buscar coincidencias en orden de prioridad (Crashes -> Errores -> Performance -> Positivo)
+    for stars in [1, 2, 3, 5, 4]:
+        keywords = INTENTION_STATES[stars]["keywords"]
+        if any(k in text_lower for k in keywords):
+            return stars
+            
+    # Default si no coincide palabra clave: 3 estrellas (Aceptable)
+    return 3
+
+
 def extract_core_phrase(text: str) -> str:
     """
     Extrae la primera cláusula u oración relevante recortando relleno secundario o ruido.
     """
     if not text:
         return ""
-    # Dividir por signos de puntuación principales (puntos, comas largas, saltos)
     clauses = re.split(r'[;\.\n\r]|\b(pero|aunque|sin embargo)\b', text, flags=re.IGNORECASE)
     for clause in clauses:
         if clause and len(clause.strip()) > 3:
             clean = clause.strip()
-            # Si tiene más de 8 palabras, recortar en la primera coma si existe
             words = clean.split()
             if len(words) > 10:
                 sub_parts = clean.split(',')
@@ -24,83 +47,46 @@ def extract_core_phrase(text: str) -> str:
     return text.strip()
 
 
-def _tokenize_ngrams(text: str, n: int = 2) -> set[str]:
-    clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
-    words = clean.split()
-    if len(words) < n:
-        return set(words)
-    return set(' '.join(words[i:i+n]) for i in range(len(words) - n + 1))
-
-
-def compute_similarity(text1: str, text2: str) -> float:
+def cluster_by_5_intentions(texts: List[str]) -> List[Dict]:
     """
-    Calcula similitud de Jaccard sobre n-gramas de palabras entre dos textos.
+    Agrupa una lista de reseñas de un producto en los 5 estados de intención (1-5 estrellas)
+    y selecciona 1 frase resumen canónica para cada estado presente.
     """
-    set1 = _tokenize_ngrams(text1)
-    set2 = _tokenize_ngrams(text2)
-    if not set1 or not set2:
-        return 0.0
-    intersection = len(set1.intersection(set2))
-    union = len(set1.union(set2))
-    return intersection / max(1, union)
-
-
-def cluster_semantic_reviews(texts: List[str], similarity_threshold: float = 0.35) -> List[Dict]:
-    """
-    Agrupa una lista de reseñas por contexto/similitud semántica y extrae la frase canónica representativa.
-    Retorna una lista de clusters con:
-    - canonical_es: Frase núcleo representativa
-    - count: Frecuencia de ocurrencias
-    - original_texts: Lista de todas las reseñas pertenecientes al cluster
-    """
-    clusters: List[Dict] = []
-    
-    # 1. Extraer frases núcleo y contar frecuencias exactas de núcleos primero
-    core_frequency: Dict[str, Tuple[str, List[str]]] = defaultdict(lambda: ("", []))
+    state_groups: Dict[int, List[str]] = defaultdict(list)
     
     for t in texts:
         t_clean = t.strip()
         if not t_clean:
             continue
-        core = extract_core_phrase(t_clean)
-        norm_core = re.sub(r'[^\w\s]', '', core.lower()).strip()
-        if not norm_core:
-            norm_core = t_clean.lower()
-            
-        current_canonical, raw_list = core_frequency[norm_core]
-        if not current_canonical:
-            current_canonical = core
-        raw_list.append(t_clean)
-        core_frequency[norm_core] = (current_canonical, raw_list)
+        stars = classify_intention_state(t_clean)
+        state_groups[stars].append(t_clean)
 
-    # 2. Agrupamiento por Similitud Semántica entre Núcleos
-    unique_cores = list(core_frequency.items())
-    visited = set()
-
-    for i, (norm_i, (canonical_i, raw_list_i)) in enumerate(unique_cores):
-        if i in visited:
+    clusters = []
+    for stars in range(1, 6):
+        group_texts = state_groups[stars]
+        if not group_texts:
             continue
-        visited.add(i)
-        
-        cluster_canonical = canonical_i
-        cluster_raw_texts = list(raw_list_i)
-
-        for j in range(i + 1, len(unique_cores)):
-            if j in visited:
-                continue
-            norm_j, (canonical_j, raw_list_j) = unique_cores[j]
             
-            sim = compute_similarity(canonical_i, canonical_j)
-            if sim >= similarity_threshold:
-                visited.add(j)
-                cluster_raw_texts.extend(raw_list_j)
+        # Extraer frases núcleo y buscar la más representativa (frecuente o limpia)
+        core_counts = defaultdict(int)
+        raw_map = {}
+        for txt in group_texts:
+            core = extract_core_phrase(txt)
+            norm = re.sub(r'[^\w\s]', '', core.lower()).strip()
+            core_counts[norm] += 1
+            if norm not in raw_map:
+                raw_map[norm] = core
+                
+        # Elegir la frase núcleo más común del estado
+        best_norm = max(core_counts.keys(), key=lambda k: core_counts[k])
+        best_canonical = raw_map[best_norm]
 
         clusters.append({
-            "canonical_es": cluster_canonical,
-            "count": len(cluster_raw_texts),
-            "original_texts": cluster_raw_texts
+            "stars": stars,
+            "state_name": INTENTION_STATES[stars]["name"],
+            "canonical_es": best_canonical,
+            "count": len(group_texts),
+            "original_texts": group_texts
         })
 
-    # Ordenar los clusters por frecuencia descendente (los problemas más comunes primero)
-    clusters.sort(key=lambda c: c["count"], reverse=True)
     return clusters

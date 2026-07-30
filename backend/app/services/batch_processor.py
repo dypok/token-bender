@@ -10,7 +10,7 @@ from app.models.schemas import (
 )
 from app.services.tokenizer import count_tokens
 from app.services.ctranslate_service import translate_ctranslate2_batch
-from app.services.semantic_cluster import cluster_semantic_reviews
+from app.services.semantic_cluster import cluster_by_5_intentions, INTENTION_STATES
 from app.batch_tasks import add_log, set_result
 
 REVIEWS_10K = 10000
@@ -37,21 +37,6 @@ def detect_product_column(df: pd.DataFrame) -> str | None:
         if any(k in low for k in ["producto", "product", "item", "nombre", "categoria", "category"]):
             return col
     return None
-
-
-def _assign_stars(error_type: str | None) -> int:
-    if not error_type:
-        return 3
-    err = error_type.lower()
-    if err == "crash":
-        return 1
-    elif err in ["bug", "network"]:
-        return 2
-    elif err in ["performance", "ui"]:
-        return 3
-    elif err == "feature_request":
-        return 4
-    return 3
 
 
 def make_item(text_es: str, text_en: str, tok_es: int, tok_en: int, class_result: dict | None, frequency: int = 1, product_name: str | None = None, stars: int = 3) -> BatchResultItem:
@@ -90,6 +75,7 @@ def build_summary(results: list[BatchResultItem]) -> EconomicSummary:
     total = sum(r.frequency for r in results)
     if total == 0:
         return empty_summary()
+    # Métricas basadas en la tokenización individual de la frase resumen por su frecuencia
     sum_orig = sum(r.tokens_original * r.frequency for r in results)
     sum_en = sum(r.tokens_en * r.frequency for r in results)
     avg_orig = round(sum_orig / total, 1)
@@ -127,42 +113,42 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
     prod_col = detect_product_column(df)
     
     if task_id:
-        add_log(task_id, f"Agrupando reseñas por contexto semántico y producto...")
+        add_log(task_id, f"Clasificando reseñas en 5 Estados de Intención por producto...")
 
     start_time = time.time()
     
-    # 1. Agrupar por Producto (si existe) o procesar globalmente
+    # 1. Agrupar reseñas en los 5 Estados de Intención por Producto
     grouped_clusters = []
     if prod_col:
         for prod_name, sub_df in df.groupby(prod_col):
             sub_texts = [str(t) if pd.notna(t) else "" for t in sub_df[text_col]]
             sub_texts = [t.strip() for t in sub_texts if t.strip()]
-            clusters = cluster_semantic_reviews(sub_texts)
+            clusters = cluster_by_5_intentions(sub_texts)
             for c in clusters:
                 c["product_name"] = str(prod_name)
             grouped_clusters.extend(clusters)
     else:
         raw_texts = [str(t) if pd.notna(t) else "" for t in df[text_col]]
         clean_texts = [t.strip() for t in raw_texts if t.strip()]
-        clusters = cluster_semantic_reviews(clean_texts)
+        clusters = cluster_by_5_intentions(clean_texts)
         for c in clusters:
             c["product_name"] = "General"
         grouped_clusters.extend(clusters)
 
     if task_id:
-        add_log(task_id, f"Agrupamiento semántico completado: {len(grouped_clusters)} clusters identificados de {len(df)} reseñas totales.")
-        add_log(task_id, f"Traduciendo {len(grouped_clusters)} frases núcleo con CTranslate2 C++...")
+        add_log(task_id, f"Agrupamiento completado: {len(grouped_clusters)} estados de intención identificados en {len(df)} reseñas.")
+        add_log(task_id, f"Traduciendo {len(grouped_clusters)} resúmenes únicos con CTranslate2 C++...")
 
-    # 2. Traducir ÚNICAMENTE las frases núcleo canónicas de cada cluster
+    # 2. Traducir ÚNICAMENTE las 5 frases resumen canónicas por producto
     canonical_texts = [c["canonical_es"] for c in grouped_clusters]
     translations = await translate_ctranslate2_batch(canonical_texts)
 
-    # 3. Clasificación rápida por palabras clave sobre las traducciones/núcleos
+    # 3. Clasificación rápida por palabras clave sobre los resúmenes
     from app.services.classifier import classify_batch_fast
     classify_inputs = translations if optent_tokens else canonical_texts
     class_results = classify_batch_fast(classify_inputs)
 
-    # 4. Construir resultados ejecutivos agregados
+    # 4. Construir resultados agregados por Estado de Intención
     results = []
     product_star_totals = {}
     product_counts = {}
@@ -171,13 +157,11 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
         canon_es = cluster["canonical_es"]
         count = cluster["count"]
         prod = cluster.get("product_name", "General")
+        stars = cluster["stars"]
         
         # Gasto de tokens basado ÚNICAMENTE en la reseña resumen traducida única
         orig_tokens = count_tokens(canon_es)
         en_tokens = count_tokens(trans)
-        
-        # Asignar 1-5 estrellas basado en el tipo de error
-        stars = _assign_stars(cr.get("error_type") if cr else None)
         
         item = make_item(
             text_es=canon_es,
@@ -195,7 +179,7 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
         product_star_totals[prod] = product_star_totals.get(prod, 0) + (stars * count)
         product_counts[prod] = product_counts.get(prod, 0) + count
 
-    # Calcular rating promedio (1.0 a 5.0 estrellas) por producto
+    # Calcular rating promedio (1.00 a 5.00 ⭐) por producto
     product_ratings = {
         p: round(product_star_totals[p] / max(1, product_counts[p]), 2)
         for p in product_counts
@@ -213,7 +197,7 @@ async def process_batch_dataframe(df: pd.DataFrame, text_col: str, optent_tokens
 
 async def run_batch_background_bytes(task_id: str, content: bytes, filename: str, optent_tokens: bool, deepl_api_key: str):
     add_log(task_id, f"Inicio: {datetime.now().strftime('%H:%M:%S')}")
-    add_log(task_id, f"Iniciando procesamiento batch (Agrupamiento Semántico + CTranslate2)...")
+    add_log(task_id, f"Iniciando procesamiento batch (5 Estados de Intención + CTranslate2)...")
     add_log(task_id, f"Leyendo archivo: {filename}")
     try:
         if filename.endswith(".csv"):
@@ -225,7 +209,7 @@ async def run_batch_background_bytes(task_id: str, content: bytes, filename: str
 
         response = await process_batch_dataframe(df, text_col, optent_tokens, deepl_api_key, task_id=task_id)
         summary = response.economic_summary
-        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas en {len(response.results)} clusters, ahorro mensual estimado: ${summary.monthly_savings_10k}")
+        add_log(task_id, f"Resumen: {summary.total_reviews} reseñas en {len(response.results)} estados, ahorro mensual estimado: ${summary.monthly_savings_10k}")
         add_log(task_id, "Proceso completado.")
         set_result(task_id, response)
     except Exception as e:
