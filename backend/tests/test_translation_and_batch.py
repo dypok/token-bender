@@ -6,7 +6,7 @@ import pandas as pd
 @pytest.mark.asyncio
 async def test_translate_service_unit():
     from app.services.translator import translate
-    translated, engine = await translate("La aplicación se cierra sola", "ctranslate2")
+    translated, engine = await translate("La aplicación se cierra sola")
     assert translated != ""
     assert translated.strip().lower() != "la aplicación se cierra sola"
     assert "close" in translated.lower() or "app" in translated.lower() or "crash" in translated.lower()

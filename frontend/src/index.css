@@ -3,173 +3,320 @@
 @tailwind components;
 @tailwind utilities;
 
-@font-face {
-  font-family: 'Segoe UI';
-  src: local('Segoe UI'), local('Segoe'), local('sans-serif');
+:root {
+  --bg: #0b1120;
+  --bg-elevated: #111a2e;
+  --bg-card: #16223a;
+  --bg-hover: #1d2c4a;
+  --border: #243352;
+  --border-strong: #334466;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.15);
+  --success: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
 }
 
-:root {
-  --aero-start: #3e8ede;
-  --aero-end: #1f5da0;
-  --bg-panel: #ececec;
-  --bg-surface: #f5f5f5;
-  --glass-highlight: rgba(255, 255, 255, 0.3);
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
 }
 
 body {
-  font-family: 'Segoe UI', 'Segoe', sans-serif;
-  background: #2e5a88;
-  margin: 0;
-  min-height: 100vh;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(99, 102, 241, 0.18), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(34, 211, 238, 0.1), transparent);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.card-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  align-items: center;
-}
-
-/* Windows 7 Aero window styles */
-.window {
-  background: var(--bg-panel);
-  border-radius: 8px 8px 0 0;
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.15);
-  overflow: hidden;
-}
-
-.title-bar {
-  background: linear-gradient(180deg, var(--aero-start), var(--aero-end));
-  padding: 6px 8px;
-  display: flex;
-  align-items: center;
   gap: 8px;
-  user-select: none;
-}
-
-.title-bar-text {
-  color: #fff;
-  font-size: 12px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  flex: 1;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
 }
 
-.title-btn {
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 3px;
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6d70f5, #5a55f0);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border-strong);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+}
+
+.btn-success:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+  transform: translateY(-1px);
+}
+
+/* ---------- Inputs ---------- */
+.input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- KPI cards ---------- */
+.kpi {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.kpi:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Tables ---------- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  vertical-align: top;
+}
+
+.table tbody tr {
+  transition: background 0.1s ease;
+}
+
+.table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- Tabs ---------- */
+.tab {
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  background: transparent;
+  font-family: inherit;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.tab-active {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* ---------- Modal ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  color: #fff;
-  background: linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0.05));
-  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(3, 7, 18, 0.7);
+  backdrop-filter: blur(6px);
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- Upload zone ---------- */
+.drop-zone {
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  padding: 28px;
+  text-align: center;
   cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-elevated);
 }
 
-.title-btn:hover {
-  background: linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.1));
+.drop-zone:hover,
+.drop-zone-drag {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
-.title-btn.close {
-  background: linear-gradient(180deg, #e04343, #a02020);
-}
-
-.title-btn.close:hover {
-  background: linear-gradient(180deg, #f05555, #b03030);
-}
-
-/* Aero glass button */
-.btn-aero {
-  background: linear-gradient(180deg, #f0f0f0, #d5d5d5);
-  border: 1px solid #b0b0b0;
-  border-radius: 4px;
-  padding: 6px 16px;
-  font-size: 12px;
-  font-family: 'Segoe UI', sans-serif;
-  color: #1a1a1a;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-
-.btn-aero:hover {
-  background: linear-gradient(180deg, #e5f0ff, #cce0ff);
-  border-color: var(--aero-start);
-}
-
-.btn-aero:active {
-  background: linear-gradient(180deg, #cce0ff, #a8c8ff);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
-}
-
-.btn-aero:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Input fields aero style */
-.input-aero {
-  border: 1px solid #b0b0b0;
-  border-radius: 3px;
-  padding: 5px 8px;
-  font-size: 12px;
-  font-family: 'Segoe UI', sans-serif;
-  background: #fff;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.08);
-  outline: none;
-}
-
-.input-aero:focus {
-  border-color: var(--aero-start);
-  box-shadow: 0 0 0 2px rgba(62, 142, 222, 0.2);
-}
-
-/* Panel styles */
-.panel {
-  background: var(--bg-surface);
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  padding: 12px;
-}
-
-.panel-header {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a3a6a;
-  margin-bottom: 8px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #d0d0d0;
-}
-
-/* Progress bar glass */
-.progress-glass {
-  height: 16px;
-  background: #e0e0e0;
-  border-radius: 8px;
-  border: 1px solid #b0b0b0;
+/* ---------- Terminal ---------- */
+.terminal {
+  background: #0a0f1c;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
-.progress-glass-fill {
-  height: 100%;
-  background: linear-gradient(180deg, var(--aero-start), var(--aero-end));
-  border-radius: 8px;
-  transition: width 0.3s ease;
-  box-shadow: inset 0 1px 2px var(--glass-highlight);
-}
-
-/* Tooltip style */
-.tooltip {
-  background: #fffde0;
-  border: 1px solid #d4d0a0;
-  border-radius: 3px;
-  padding: 4px 8px;
+/* ---------- Badges / chips ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
   font-size: 11px;
-  box-shadow: 1px 1px 4px rgba(0,0,0,0.15);
+  font-weight: 600;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 14px; }
-::-webkit-scrollbar-track { background: #e8e8e8; border-left: 1px solid #d0d0d0; }
-::-webkit-scrollbar-thumb { background: #c0c0c0; border: 2px solid #e8e8e8; border-radius: 7px; }
-::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

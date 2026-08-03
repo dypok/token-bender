@@ -2,8 +2,6 @@ from app.models.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
     TokenVariant,
-    ProjectionRequest,
-    ProjectionResponse,
     TokenizeRequest,
 )
 
@@ -17,29 +15,11 @@ class TestTokenizeRequest:
 class TestAnalyzeRequest:
     def test_default_engine(self):
         req = AnalyzeRequest(text="hola")
-        assert req.engine == "ollama"
+        assert req.engine == "ctranslate2"
 
     def test_default_classify(self):
         req = AnalyzeRequest(text="hola")
         assert req.classify is False
-
-
-class TestProjectionRequest:
-    def test_defaults(self):
-        req = ProjectionRequest(tokens_original=27, tokens_translated=19)
-        assert req.reviews_per_day == 10000
-        assert req.cost_per_million_tokens_usd == 2.5
-        assert req.days == 30
-
-
-class TestProjectionResponse:
-    def test_fields(self):
-        resp = ProjectionResponse(
-            daily_token_diff=80000,
-            monthly_token_diff=2400000,
-            monthly_savings_usd=6.0,
-        )
-        assert resp.monthly_savings_usd == 6.0
 
 
 class TestAnalyzeResponse:
@@ -51,6 +31,6 @@ class TestAnalyzeResponse:
             original=orig,
             translated=trans,
             spanglish=spang,
-            engine_used="ollama",
+            engine_used="ctranslate2",
         )
         assert resp.classification is None

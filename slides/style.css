@@ -1,0 +1,119 @@
+:root {
+  --tb-bg: #0b1120;
+  --tb-bg-elevated: #111a2e;
+  --tb-card: #16223a;
+  --tb-border: #243352;
+  --tb-border-strong: #334466;
+  --tb-accent: #6366f1;
+  --tb-accent-hover: #818cf8;
+  --tb-cyan: #22d3ee;
+  --tb-success: #34d399;
+  --tb-danger: #f87171;
+  --tb-warn: #fbbf24;
+  --tb-text: #e2e8f0;
+  --tb-text-muted: #94a3b8;
+  --tb-text-dim: #64748b;
+}
+
+/* Fondo base */
+html,
+#app {
+  background: var(--tb-bg);
+  color: var(--tb-text);
+}
+
+/* Todos los layouts comparten el MISMO fondo */
+.slidev-layout {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(99, 102, 241, 0.18), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(34, 211, 238, 0.1), transparent),
+    var(--tb-bg) !important;
+  color: var(--tb-text);
+}
+
+.slidev-layout h1 {
+  color: var(--tb-text);
+  background: linear-gradient(135deg, var(--tb-accent-hover), var(--tb-cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.slidev-layout h2 {
+  color: var(--tb-text);
+}
+
+.slidev-layout h1 strong,
+.slidev-layout h2 strong {
+  color: var(--tb-accent-hover);
+  -webkit-text-fill-color: currentColor;
+}
+
+.slidev-layout p,
+.slidev-layout li,
+.slidev-layout blockquote {
+  color: var(--tb-text-muted);
+}
+
+/* Cards */
+.tb-card {
+  background: var(--tb-card);
+  border: 1px solid var(--tb-border);
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.tb-card-accent {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.tb-card-success {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.tb-chip {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--tb-accent-hover);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.tb-kpi {
+  background: var(--tb-card);
+  border: 1px solid var(--tb-border);
+  border-radius: 14px;
+  padding: 1.25rem;
+}
+
+.tb-kpi-value {
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tb-kpi-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tb-text-dim);
+  margin-bottom: 0.4rem;
+}
+
+.text-green { color: var(--tb-success) !important; }
+.text-red { color: var(--tb-danger) !important; }
+.text-indigo { color: var(--tb-accent-hover) !important; }
+.text-cyan { color: var(--tb-cyan) !important; }
+.text-muted { color: var(--tb-text-muted) !important; }
+.text-dim { color: var(--tb-text-dim) !important; }
+
+code {
+  color: var(--tb-cyan) !important;
+}

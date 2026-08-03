@@ -12,12 +12,12 @@ interface Props {
 }
 
 const COLORS: Record<string, string> = {
-  white: '#f0f0f0',
-  green: '#4af626',
-  yellow: '#f5f543',
-  red: '#f6544a',
-  cyan: '#4af5f6',
-  gray: '#888888',
+  white: '#cbd5e1',
+  green: '#4ade80',
+  yellow: '#facc15',
+  red: '#f87171',
+  cyan: '#22d3ee',
+  gray: '#64748b',
 }
 
 export default function ConsoleWindow({ lines, visible, onClose }: Props) {
@@ -30,34 +30,32 @@ export default function ConsoleWindow({ lines, visible, onClose }: Props) {
   if (!visible) return null
 
   return (
-    <div className="border border-gray-600 rounded overflow-hidden shadow-lg" style={{ background: '#0c0c0c' }}>
-      {/* Title bar */}
-      <div className="flex items-center px-2 py-1 select-none" style={{ background: 'linear-gradient(180deg, #2d4b7a, #1a3057)' }}>
-        <span className="text-xs text-white font-bold tracking-wide drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] flex items-center gap-1.5">
-          <span className="text-yellow-300 text-sm">&#9679;</span>
-          C:\Windows\system32\cmd.exe
-        </span>
-        <div className="flex-1" />
-        <div className="flex items-center gap-0.5">
-          <button className="w-5 h-4 flex items-center justify-center text-xs text-white bg-[rgba(255,255,255,0.1)] border border-[rgba(255,255,255,0.15)] rounded-sm hover:bg-[rgba(255,255,255,0.2)] cursor-pointer">─</button>
-          <button className="w-5 h-4 flex items-center justify-center text-xs text-white bg-[rgba(255,255,255,0.1)] border border-[rgba(255,255,255,0.15)] rounded-sm hover:bg-[rgba(255,255,255,0.2)] cursor-pointer">□</button>
-          <button onClick={onClose} className="w-5 h-4 flex items-center justify-center text-xs text-white bg-[rgba(220,50,50,0.6)] border border-[rgba(255,100,100,0.2)] rounded-sm hover:bg-[rgba(220,50,50,0.9)] cursor-pointer">✕</button>
+    <div className="terminal">
+      {/* Terminal header */}
+      <div className="flex items-center gap-2 border-b border-[#1e293b] px-4 py-2.5">
+        <div className="flex gap-1.5">
+          <span className="h-3 w-3 rounded-full bg-red-500/80" />
+          <span className="h-3 w-3 rounded-full bg-amber-500/80" />
+          <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
         </div>
+        <span className="ml-2 text-xs font-medium text-slate-400">Procesamiento batch</span>
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="cursor-pointer rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+          title="Cerrar"
+        >
+          <span className="material-icons text-sm">close</span>
+        </button>
       </div>
 
-      {/* Console body */}
+      {/* Terminal body */}
       <div
-        className="overflow-y-auto p-2 font-mono"
-        style={{
-          background: '#0c0c0c',
-          height: '280px',
-          fontFamily: '"Consolas", "Lucida Console", "Courier New", monospace',
-          fontSize: '12px',
-          lineHeight: '1.5',
-        }}
+        className="h-64 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed"
+        style={{ background: '#0a0f1c' }}
       >
         {lines.map((line, i) => (
-          <div key={i} style={{ color: COLORS[line.color ?? 'white'] }} className="whitespace-pre-wrap">
+          <div key={i} style={{ color: COLORS[line.color ?? 'white'] }} className="whitespace-pre-wrap font-mono">
             {line.text}
           </div>
         ))}

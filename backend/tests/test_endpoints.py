@@ -34,42 +34,23 @@ async def test_tokenize_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_projection_endpoint(client):
-    resp = await client.post(
-        "/api/analyze/projection",
-        json={
-            "tokens_original": 27,
-            "tokens_translated": 19,
-            "reviews_per_day": 10000,
-            "cost_per_million_tokens_usd": 2.5,
-            "days": 30
-        }
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["daily_token_diff"] == 80000
-    assert data["monthly_token_diff"] == 2400000
-    assert data["monthly_savings_usd"] == 6.0
-
-
-@pytest.mark.asyncio
 async def test_config_status_endpoint(client):
     resp = await client.get("/api/config/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert "ollama_available" in data
-    assert "deepl_configured" in data
+    assert "engine" in data
+    assert data["engine"] == "ctranslate2"
 
 
 @pytest.mark.asyncio
 async def test_analyze_endpoint_returns_200(client):
     resp = await client.post(
         "/api/analyze",
-        json={"text": "Hola mundo", "engine": "ollama", "classify": False}
+        json={"text": "Hola mundo", "engine": "ctranslate2", "classify": False}
     )
     assert resp.status_code == 200
     data = resp.json()
     assert "original" in data
     assert "translated" in data
     assert "spanglish" in data
-    assert data["engine_used"] in ("ollama", "deepl", "google", "fallback", "none")
+    assert data["engine_used"] == "ctranslate2"

@@ -8,11 +8,11 @@ El sistema cuenta con un frontend interactivo en React y un backend robusto cons
 ## Caracteristicas Principales
 
 - Analisis de Tokens: Cuenta de forma precisa la cantidad de tokens de un texto utilizando la codificacion o200k_base (a traves de tiktoken).
-- Traduccion Optimizada: Traduce reseñas entre español e ingles utilizando motores como DeepL o traductores alternativos.
+- Traduccion Optimizada: Traduce reseñas entre español e ingles utilizando el motor local CTranslate2 / MarianMT (CPU).
 - Analisis de Spanglish: Permite generar versiones hibridas para de ahorro de tokens y analisis.
-- Clasificacion de Reseñas: Clasifica las reseñas en categorias de error (crash, bug, performance, ui, network, feature_request) e identifica el componente afectado (login, payment, settings, etc.) utilizando modelos locales en Ollama o un clasificador de respaldo basado en reglas.
+- Clasificacion de Reseñas: Clasifica las reseñas en categorias de error (crash, bug, performance, ui, network, feature_request) e identifica el componente afectado (login, payment, settings, etc.) mediante un clasificador basado en reglas.
 - Ingesta por Lote (Excel): Permite la carga de archivos Excel con multiples reseñas para calcular el ahorro economico consolidado y procesar clasificaciones de forma masiva.
-- Calculadora de Proyeccion: Permite simular y proyectar los ahorros diarios y mensuales basandose en volumenes personalizados de reseñas y costo por millon de tokens.
+- Proyeccion en Resultados: Muestra el ahorro economico estimado (diario, semanal, mensual) dentro de los resultados del proceso batch.
 
 ## Estructura del Proyecto
 
@@ -25,9 +25,8 @@ El proyecto esta organizado en las siguientes carpetas y archivos clave:
   - app/models/: Esquemas de validacion de datos con Pydantic.
   - requirements.txt: Lista de dependencias del backend.
 - frontend/: Contiene la interfaz de usuario en React, TypeScript y Vite.
-  - src/App.tsx: Layout principal y navegacion.
-  - src/components/: Componentes de la interfaz de usuario (MainWindow, ConfigPanel, ExcelIngest, ProjectionPanel).
-  - src/store/: Manejo de estado global con Zustand.
+  - src/App.tsx: Layout principal (solo ingesta Excel + configuración en modal).
+  - src/components/: Componentes de la interfaz de usuario (ExcelIngest, ConfigPanel, ConsoleWindow, TitleBar, Button).
 - start.sh: Script en Bash para iniciar de forma concurrente el frontend y el backend en entornos basados en Unix.
 - requirements.txt: Archivo de dependencias Python en la raiz del proyecto para facilitar la instalacion.
 
@@ -35,7 +34,6 @@ El proyecto esta organizado en las siguientes carpetas y archivos clave:
 
 - Python 3.10 o superior
 - Node.js (v18 o superior) y npm
-- Ollama (opcional, necesario para ejecucion de clasificacion local con LLMs)
 
 ## Instalacion y Configuracion
 
@@ -81,8 +79,7 @@ El backend expone la documentacion interactiva en http://localhost:8000/docs. Lo
 - POST /api/tokenize: Recibe un texto y devuelve el conteo de tokens y el idioma detectado.
 - POST /api/analyze: Traduce el texto, cuenta tokens antes y despues de la traduccion, genera Spanglish y realiza clasificacion.
 - POST /api/batch/upload: Procesa un archivo Excel con reseñas enviadas como multipart/form-data.
-- POST /api/batch/folder: Analiza todos los archivos Excel dentro de una ruta de carpeta local especificada.
-- POST /api/analyze/projection: Calcula la proyeccion de ahorro financiero y de tokens.
+- POST /api/batch/folder: Procesa todos los archivos Excel de una carpeta seleccionada (subidos como archivos múltiples).
 
 ## Licencia
 
@@ -102,11 +99,10 @@ Traducir reseñas en español a inglés (o generar Spanglish) reduce significati
 |------|-----------|
 | Backend | Python 3, FastAPI, Uvicorn |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
-| Estado | Zustand + localStorage |
 | Cliente HTTP | Axios (con proxy Vite) |
 | Tokenización | `tiktoken` (encoder `o200k_base`) |
-| Traducción | Ollama (local) · DeepL API · Google Translate (fallback) |
-| Clasificación | Ollama (prompt-tuning) · fallback heurístico por palabras clave |
+| Traducción | CTranslate2 + MarianMT (local, CPU) |
+| Clasificación | Fallback heurístico por palabras clave |
 | Excel | pandas / openpyxl (backend) · `xlsx` SheetJS (frontend) |
 | Tests | pytest + pytest-asyncio + httpx |
 
@@ -117,37 +113,43 @@ clase2/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # Punto de entrada FastAPI + CORS
-│   │   ├── config.py            # Constantes (Ollama, DeepL, encoding)
-│   │   ├── models/schemas.py    # Modelos Pydantic v2
+│   │   ├── config.py            # Constantes (encoding)
+│   │   ├── models/
+│   │   │   ├── analyze.py       # Schemas: tokenize, analyze, translate
+│   │   │   ├── batch.py         # Schemas: batch results, summary
+│   │   │   ├── config.py        # Schemas: config status
+│   │   │   └── schemas.py       # Re-exports (compatibilidad)
 │   │   ├── services/
 │   │   │   ├── tokenizer.py     # tiktoken + langdetect
-│   │   │   ├── translator.py    # Ollama / DeepL / fallback
-│   │   │   ├── spanglish.py     # Diccionario + prompt-tuning
-│   │   │   └── classifier.py    # Clasificación de reseñas (LLM + heurística)
+│   │   │   ├── translator.py    # CTranslate2
+│   │   │   ├── spanglish.py     # Diccionario de sustituciones
+│   │   │   ├── classifier.py    # Clasificación de reseñas (heurística)
+│   │   │   ├── ctranslate_service.py # Motor CTranslate2 / MarianMT
+│   │   │   ├── batch/           # Procesamiento batch (io, columnas, economía, orquestación)
+│   │   │   └── clustering/      # Intenciones (1-5 estrellas) y agrupamiento semántico
 │   │   ├── routers/
 │   │   │   ├── tokenize.py      # POST /api/tokenize
 │   │   │   ├── analyze.py       # POST /api/analyze (endpoint principal)
 │   │   │   ├── translate.py     # POST /api/translate
 │   │   │   ├── config_router.py # GET /api/config/status
-│   │   │   └── batch.py         # POST /api/batch/upload, /batch/folder, /analyze/projection
+│   │   │   └── batch.py         # POST /api/batch/upload, /batch/folder, /batch/start, /batch/progress
 │   │   └── data/
 │   │       └── spanglish_dict.json  # ~500 pares ES↔EN
-│   ├── tests/                   # 22 tests unitarios y de integración
+│   ├── tests/                   # Tests unitarios y de integración
 │   ├── generate_excel.py        # Generador de Excel con reseñas sintéticas
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── MainWindow.tsx     # Panel Analyze (texto + selector motor)
-│   │   │   ├── ResultsPanel.tsx   # 3 variantes lado a lado (Original/Translated/Spanglish)
-│   │   │   ├── ConfigPanel.tsx    # Panel Settings (DeepL key, estado Ollama)
-│   │   │   ├── ExcelIngest.tsx    # Panel Excel Import (upload + clasificación + export)
-│   │   │   ├── ProjectionPanel.tsx# Panel Projection (proyección económica)
-│   │   │   ├── TitleBar.tsx       # Barra decorativa Windows 7 Aero
-│   │   │   ├── Button.tsx         # Botón estilo Aero Glass
-│   │   │   └── StatusBar.tsx      # Barra de progreso y tooltips
+│   │   │   ├── ExcelIngest.tsx    # Orquestador principal (composición)
+│   │   │   ├── upload/            # Tabs, zonas drag&drop (archivo y carpeta)
+│   │   │   ├── results/           # KPI grid, costos, ratings, tabla de resultados
+│   │   │   ├── ConfigPanel.tsx    # Modal de configuración (estado CTranslate2)
+│   │   │   ├── ConsoleWindow.tsx  # Consola de proceso
+│   │   │   └── Button.tsx         # Botón moderno
+│   │   ├── hooks/useBatchProcessing.ts  # Estado y lógica del procesamiento batch
+│   │   ├── utils/                # Formateo y export a Excel
 │   │   ├── api/client.ts        # Axios (proxy automático a backend)
-│   │   ├── store/useStore.ts    # Zustand + persistencia localStorage
 │   │   └── types/index.ts       # Interfaces TypeScript
 │   ├── vite.config.ts           # Proxy /api → localhost:8000, Tailwind plugin
 │   └── package.json
@@ -165,11 +167,12 @@ clase2/
 | `GET` | `/` | Health check |
 | `POST` | `/api/tokenize` | Tokeniza texto y detecta idioma |
 | `POST` | `/api/analyze` | **Principal.** Tokeniza, traduce, genera Spanglish y clasifica |
-| `POST` | `/api/translate` | Traducción pura (sin análisis) con fallback automático |
-| `GET` | `/api/config/status` | Estado de motores (Ollama, DeepL) |
+| `POST` | `/api/translate` | Traducción pura con CTranslate2 |
+| `GET` | `/api/config/status` | Estado del motor CTranslate2 |
 | `POST` | `/api/batch/upload` | Procesa Excel individual (clasifica por fila + proyección económica) |
-| `POST` | `/api/batch/folder` | Procesa todos los `.xlsx` de una carpeta |
-| `POST` | `/api/analyze/projection` | Proyección económica (ahorro de tokens y USD) |
+| `POST` | `/api/batch/folder` | Procesa todos los `.xlsx`/`.csv` de una carpeta (subida múltiple) |
+| `POST` | `/api/batch/start` | Inicia proceso batch en background (upload) |
+| `GET` | `/api/batch/progress/{task_id}` | Consulta el progreso de un batch |
 
 ### Flujo del endpoint principal (`POST /api/analyze`)
 
@@ -178,9 +181,9 @@ Texto original
     │
     ├─ 1. Detectar idioma (langdetect)
     ├─ 2. Tokenizar (tiktoken o200k_base)
-    ├─ 3. Traducir al idioma opuesto (Ollama → DeepL → Google Translate)
-    ├─ 4. Generar Spanglish (diccionario + prompt-tuning Ollama)
-    └─ 5. Clasificar (Ollama → heurística por palabras clave)
+    ├─ 3. Traducir al idioma opuesto (CTranslate2 / MarianMT)
+    ├─ 4. Generar Spanglish (diccionario de sustituciones)
+    └─ 5. Clasificar (heurística por palabras clave)
     │
     └─ Devuelve: original, translated, spanglish + conteo de tokens + clasificación
 ```
@@ -194,10 +197,8 @@ El clasificador extrae dos campos de cada reseña:
 
 ## Requisitos
 
-- Python 3.11+ (con las librerías: `fastapi`, `uvicorn`, `tiktoken`, `pandas`, `openpyxl`, `pydantic`, `httpx`, `langdetect`, `deep-translator`, `faker`, `python-multipart`)
+- Python 3.11+ (con las librerías: `fastapi`, `uvicorn`, `tiktoken`, `pandas`, `openpyxl`, `pydantic`, `httpx`, `langdetect`, `deep-translator`, `faker`, `python-multipart`, `ctranslate2`, `transformers`, `sentencepiece`, `torch`, `sacremoses`)
 - Node.js 20+
-- Ollama (opcional, para motor local. Modelo `2:7b`)
-- API Key de DeepL (opcional, para motor remoto)
 
 ## Inicio rápido
 
@@ -241,12 +242,10 @@ python -m pytest tests/ -v
 
 ## Componentes del frontend
 
-| Panel | Pestaña | Función |
+| Panel | Ubicación | Función |
 |-------|---------|---------|
-| **MainWindow** | Analyze | Textarea + selector de motor + botón Analyze. Muestra las 3 variantes (Original, Translated, Spanglish) con conteo de tokens y botón copiar |
-| **ConfigPanel** | Settings | Estado de Ollama/DeepL, campo para API Key de DeepL, selector de motor por defecto |
-| **ExcelIngest** | Excel Import | Subir `.xlsx`, preview local, toggle de optimización, tabla de resultados clasificados, proyección económica, exportación a Excel |
-| **ProjectionPanel** | Projection | Formulario de proyección (tokens, reseñas/día, costo/millón) con cálculo de ahorro en USD |
+| **ExcelIngest** | Principal | Subir `.xlsx`, preview local, toggle de optimización, tabla de resultados clasificados, proyección económica, exportación a Excel |
+| **ConfigPanel** | Modal (botón Configuración arriba a la derecha) | Estado del motor CTranslate2 |
 
 ## Conexión frontend-backend
 

@@ -1,72 +1,21 @@
 import axios from 'axios'
-import type { AnalyzeResponse, ProjectionResponse, ConfigStatus, BatchUploadResponse } from '../types'
+import type { ConfigStatus, BatchUploadResponse } from '../types'
 
 const api = axios.create({ baseURL: '/api' })
-
-export async function analyzeText(
-  text: string,
-  engine: string,
-  deeplApiKey: string,
-  classify = false,
-  skipSpanglish = false,
-): Promise<AnalyzeResponse> {
-  const resp = await api.post('/analyze', { text, engine, classify, skip_spanglish: skipSpanglish }, {
-    headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
-  })
-  return resp.data
-}
 
 export async function getConfigStatus(): Promise<ConfigStatus> {
   const resp = await api.get('/config/status')
   return resp.data
 }
 
-export async function computeProjection(
-  tokensOriginal: number,
-  tokensTranslated: number,
-  reviewsPerDay = 10000,
-  costPerMillion = 2.5,
-  days = 30,
-): Promise<ProjectionResponse> {
-  const resp = await api.post('/analyze/projection', {
-    tokens_original: tokensOriginal,
-    tokens_translated: tokensTranslated,
-    reviews_per_day: reviewsPerDay,
-    cost_per_million_tokens_usd: costPerMillion,
-    days,
-  })
-  return resp.data
-}
-
-export async function uploadExcel(
-  file: File,
-  optentTokens: boolean,
-  engine: string,
-  deeplApiKey: string,
-): Promise<BatchUploadResponse> {
-  const form = new FormData()
-  form.append('file', file)
-  form.append('optent_tokens', String(optentTokens))
-  form.append('engine', engine)
-  const resp = await api.post('/batch/upload', form, {
-    headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
-  })
-  return resp.data
-}
-
 export async function startBatch(
   file: File,
   optentTokens: boolean,
-  engine: string,
-  deeplApiKey: string,
 ): Promise<string> {
   const form = new FormData()
   form.append('file', file)
   form.append('optent_tokens', String(optentTokens))
-  form.append('engine', engine)
-  const resp = await api.post('/batch/start', form, {
-    headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
-  })
+  const resp = await api.post('/batch/start', form)
   return resp.data.task_id
 }
 
@@ -80,18 +29,12 @@ export async function getBatchProgress(taskId: string): Promise<{
 }
 
 export async function processFolder(
-  folderPath: string,
+  files: File[],
   optentTokens: boolean,
-  engine: string,
-  deeplApiKey: string,
 ): Promise<BatchUploadResponse> {
-  const resp = await api.post('/batch/folder', {
-    folder_path: folderPath,
-    optent_tokens: optentTokens,
-    engine,
-  }, {
-    headers: deeplApiKey ? { 'deepl-api-key': deeplApiKey } : undefined,
-  })
+  const form = new FormData()
+  files.forEach((f) => form.append('files', f))
+  form.append('optent_tokens', String(optentTokens))
+  const resp = await api.post('/batch/folder', form)
   return resp.data
 }
-

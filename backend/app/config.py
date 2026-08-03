@@ -1,7 +1,4 @@
-OLLAMA_MODEL = "llama3:8b"
-OLLAMA_BASE_URL = "http://localhost:11434"
 ENCODING = "o200k_base"
-DEEPL_BASE_URL = "https://api-free.deepl.com/v2/translate"
 DEFAULT_COST_PER_MILLION_TOKENS = 2.5
 DEFAULT_REVIEWS_PER_DAY = 10000
 DEFAULT_DAYS = 30

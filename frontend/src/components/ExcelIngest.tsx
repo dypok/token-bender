@@ -1,378 +1,126 @@
-import { useState, useRef, useCallback } from 'react'
-import { useStore } from '../store/useStore'
-import { uploadExcel, processFolder, startBatch, getBatchProgress } from '../api/client'
-import TitleBar from './TitleBar'
+import { useBatchProcessing } from '../hooks/useBatchProcessing'
 import Button from './Button'
 import ConsoleWindow from './ConsoleWindow'
-import type { ConsoleLine } from './ConsoleWindow'
-import * as XLSX from 'xlsx'
-import type { BatchResult, EconomicSummary, BatchUploadResponse } from '../types'
+import UploadTabs from './upload/UploadTabs'
+import FileUploadZone from './upload/FileUploadZone'
+import FolderUploadZone from './upload/FolderUploadZone'
+import KpiGrid from './results/KpiGrid'
+import CostComparison from './results/CostComparison'
+import ProductRatings from './results/ProductRatings'
+import ResultsTable from './results/ResultsTable'
+import { downloadExcel } from '../utils/excelExport'
 
 export default function ExcelIngest() {
-  const { engine, deeplApiKey } = useStore()
-  const [optimize, setOptimize] = useState(true)
-  const [results, setResults] = useState<BatchResult[]>([])
-  const [summary, setSummary] = useState<EconomicSummary | null>(null)
-  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([])
-  const [consoleVisible, setConsoleVisible] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [preview, setPreview] = useState<string[][]>([])
-  const [mode, setMode] = useState<'file' | 'folder'>('file')
-  const [folderPath, setFolderPath] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const {
+    optimize, setOptimize,
+    mode, setMode,
+    results, summary, productRatings,
+    consoleLines, consoleVisible, setConsoleVisible,
+    loading,
+    preview,
+    fileName, folderName, folderFiles,
+    dragOver, setDragOver,
+    fileRef, folderRef,
+    resetOutputs,
+    handleFileChange, handleFolderChange,
+    handleFileDrop, handleFolderDrop,
+    handleProcess,
+    canProcess,
+  } = useBatchProcessing()
 
-  const addLog = useCallback((text: string, color?: ConsoleLine['color']) => {
-    setConsoleLines((prev) => [...prev, { text, color }])
-  }, [])
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (evt) => {
-      const data = new Uint8Array(evt.target?.result as ArrayBuffer)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
-      setPreview(rows.slice(0, 5))
-    }
-    reader.readAsArrayBuffer(file)
+  const handleModeChange = (next: 'file' | 'folder') => {
+    setMode(next)
+    resetOutputs()
+    setConsoleVisible(false)
   }
 
-  const handleProcess = async () => {
-    setLoading(true)
-    setConsoleVisible(true)
-    setConsoleLines([])
-    setResults([])
-    setSummary(null)
-
-    addLog('Microsoft Windows [Versi\u00f3n 6.1.7601]', 'gray')
-    addLog('Copyright (c) 2009 Microsoft Corporation. Todos los derechos reservados.', 'gray')
-    addLog('')
-
-    const start = performance.now()
-
-    if (mode === 'file') {
-      const file = fileRef.current?.files?.[0]
-      if (!file) {
-        addLog('ERROR: No se seleccion\u00f3 ning\u00fan archivo.', 'red')
-        setLoading(false)
-        return
-      }
-      addLog(`C:\\&gt; Procesando archivo: ${file.name}`, 'cyan')
-
-      try {
-        const taskId = await startBatch(file, optimize, 'ctranslate2', deeplApiKey)
-        addLog(`Task ID: ${taskId}`)
-        addLog('')
-
-        let done = false
-        let resultData: BatchUploadResponse | null = null
-        let lastLogCount = 0
-
-        while (!done) {
-          await new Promise((r) => setTimeout(r, 1500))
-          const progress = await getBatchProgress(taskId)
-          done = progress.done
-          resultData = progress.result
-
-          for (let i = lastLogCount; i < progress.logs.length; i++) {
-            const line = progress.logs[i]
-            const color: ConsoleLine['color'] = line.startsWith('ERROR') ? 'red'
-              : line.includes('✓') ? 'green'
-              : line.includes('→') ? 'yellow'
-              : line.includes('completado') ? 'green'
-              : 'white'
-            addLog(line, color)
-          }
-          lastLogCount = progress.logs.length
-        }
-
-        if (resultData) {
-          setResults(resultData.results)
-          setSummary(resultData.economic_summary)
-          if (resultData.product_ratings) {
-            setProductRatings(resultData.product_ratings)
-          }
-          downloadExcel(resultData.results, resultData.economic_summary, resultData.product_ratings)
-
-          const elapsed = Math.round(performance.now() - start)
-          addLog('')
-          addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
-          addLog('')
-          addLog('--- RESUMEN ECONÓMICO ---', 'cyan')
-          const s = resultData.economic_summary
-          addLog(`Total reseñas: ${s.total_reviews}`, 'white')
-          addLog(`Promedio tokens/reseña (ES): ${s.avg_tokens_original}  (EN): ${s.avg_tokens_en}`, 'white')
-          addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
-          addLog('')
-          addLog('C:\\> Proceso completado.', 'green')
-        } else {
-          addLog('ERROR: El servidor reportó un error durante la ejecución del proceso en lote.', 'red')
-        }
-      } catch (err: any) {
-        addLog(`ERROR: Falló el procesamiento batch: ${err?.message || err}`, 'red')
-      }
-
-    } else {
-      if (!folderPath.trim()) {
-        addLog('ERROR: No se especific\u00f3 ruta de carpeta.', 'red')
-        setLoading(false)
-        return
-      }
-      addLog(`C:\\&gt; Escaneando carpeta: ${folderPath}`, 'cyan')
-      try {
-        start = performance.now()
-        const data = await processFolder(folderPath.trim(), optimize, 'ctranslate2', deeplApiKey)
-        const elapsed = Math.round(performance.now() - start)
-        setResults(data.results)
-        setSummary(data.economic_summary)
-        downloadExcel(data.results, data.economic_summary)
-
-        addLog(`Procesamiento completado en ${elapsed}ms`, 'green')
-        addLog('')
-        addLog('--- RESULTADOS ---', 'cyan')
-        for (const r of data.results) {
-          const best = r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : '='
-          const err = r.classification?.error_type ?? '\u2014'
-          const comp = r.classification?.component ?? '\u2014'
-          addLog(`  [${r.tokens_original}tok ES / ${r.tokens_en}tok EN] ${best} | error=${err}, componente=${comp}`, 'white')
-        }
-
-        addLog('')
-        addLog('--- RESUMEN ECON\u00d3MICO ---', 'cyan')
-        const s = data.economic_summary
-        addLog(`Total rese\u00f1as: ${s.total_reviews}`, 'white')
-        addLog(`Ahorro mensual estimado: $${s.monthly_savings_10k.toFixed(2)}`, s.monthly_savings_10k > 0 ? 'green' : 'gray')
-        addLog('')
-        addLog('C:\\&gt; Proceso completado.', 'green')
-      } catch {
-        addLog('ERROR: Fall\u00f3 el procesamiento de la carpeta.', 'red')
-      }
-    }
-
-    setLoading(false)
-  }
-
-  const [productRatings, setProductRatings] = useState<Record<string, number>>({})
-
-  const downloadExcel = (res: BatchResult[], sum: EconomicSummary | null, ratings?: Record<string, number>) => {
-    const wb = XLSX.utils.book_new()
-    
-    // Hoja 1: Resumen de Intenciones por Producto
-    const rows = res.map((r) => ({
-      'Producto': r.product_name || 'General',
-      'Intenci\u00f3n (Calificaci\u00f3n)': `${'⭐'.repeat(r.stars || 3)} (${r.stars || 3}/5)`,
-      'Rese\u00f1a Resumen (Espa\u00f1ol)': r.review,
-      'Traducci\u00f3n Resumen (Ingl\u00e9s)': r.text_en,
-      'Cantidad Rese\u00f1as Agrupadas': r.frequency || 1,
-      'Tokens Resumen ES': r.tokens_original,
-      'Tokens Resumen EN': r.tokens_en,
-      'Mejor idioma': r.best_lang === 'en' ? 'Ingl\u00e9s' : r.best_lang === 'es' ? 'Espa\u00f1ol' : 'Igual',
-    }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Resumen de Intenciones')
-
-    // Hoja 2: Rating 5 Estrellas por Producto
-    const ratingsData = ratings || productRatings
-    if (Object.keys(ratingsData).length > 0) {
-      const ratingRows = Object.entries(ratingsData).map(([prod, rating]) => ({
-        'Producto / Aplicaci\u00f3n': prod,
-        'Rating Promedio (1-5 Estrellas)': `${rating} ⭐`,
-        'Estado': rating >= 4.0 ? 'Excelente' : rating >= 3.0 ? 'Aceptable' : 'Atenci\u00f3n Requerida'
-      }))
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ratingRows), 'Rating 5 Estrellas por Producto')
-    }
-
-    // Hoja 3: Proyección económica
-    if (sum) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
-        { M\u00e9trica: 'Total rese\u00f1as procesadas', Valor: sum.total_reviews },
-        { M\u00e9trica: 'Clusters sem\u00e1nticos identificados', Valor: res.length },
-        { M\u00e9trica: 'Total tokens (original)', Valor: sum.total_tokens_original },
-        { M\u00e9trica: 'Total tokens (ingl\u00e9s)', Valor: sum.total_tokens_en },
-        { M\u00e9trica: 'Ahorro diario (10k res/d\u00eda)', Valor: `$${sum.daily_savings_10k}` },
-        { M\u00e9trica: 'Ahorro mensual (10k res/d\u00eda)', Valor: `$${sum.monthly_savings_10k}` },
-      ]), 'Proyecci\u00f3n econ\u00f3mica')
-    }
-    XLSX.writeFile(wb, 'resumen_ejecutivo_costos.xlsx')
-  }
-
-  const handleDownloadExcel = () => downloadExcel(results, summary)
+  const handleDownload = () => downloadExcel(results, summary, productRatings)
 
   return (
-    <div className="window w-[960px]">
-      <TitleBar title="Excel Ingest \u2014 App Store Reviews" icon="description" />
-      <div className="p-4 space-y-4">
-        {/* Mode tabs */}
-        <div className="flex gap-2">
-          <button
-            className={`px-4 py-1.5 text-xs cursor-pointer rounded-t-md border border-b-0 ${
-              mode === 'file'
-                ? 'bg-white border-gray-300 font-semibold text-[var(--aero-end)] shadow-sm'
-                : 'bg-gray-100 border-transparent text-gray-600 hover:bg-gray-200'
-            }`}
-            onClick={() => { setMode('file'); setResults([]); setSummary(null); setPreview([]); setConsoleVisible(false); }}
-          >
-            Modo A: Archivo \u00danico (.xlsx)
-          </button>
-          <button
-            className={`px-4 py-1.5 text-xs cursor-pointer rounded-t-md border border-b-0 ${
-              mode === 'folder'
-                ? 'bg-white border-gray-300 font-semibold text-[var(--aero-end)] shadow-sm'
-                : 'bg-gray-100 border-transparent text-gray-600 hover:bg-gray-200'
-            }`}
-            onClick={() => { setMode('folder'); setResults([]); setSummary(null); setPreview([]); setConsoleVisible(false); }}
-          >
-            Modo B: Lote en Carpeta
-          </button>
-        </div>
-
-        <div className="panel !rounded-tl-none">
-          <div className="panel-header">
-            {mode === 'file' ? 'Cargar Archivo Excel' : 'Procesar Carpeta Local (Servidor)'}
-          </div>
-          <div className="flex gap-4 items-center p-2">
-            {mode === 'file' ? (
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.csv"
-                onChange={handleFile}
-                className="text-xs flex-1"
-              />
-            ) : (
-              <div className="flex-1 flex gap-2 items-center">
-                <span className="text-xs text-gray-600 font-medium shrink-0">Ruta de carpeta:</span>
-                <input
-                  type="text"
-                  placeholder="Ej. /home/usuario/rese\u00f1as"
-                  value={folderPath}
-                  onChange={(e) => setFolderPath(e.target.value)}
-                  className="input-aero flex-1 text-xs px-2 py-1"
-                />
-              </div>
-            )}
-            <div className="flex items-center gap-3 text-xs shrink-0">
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
-                Optimizar tokens
-              </label>
-              <Button onClick={handleProcess} disabled={loading}>
-                {loading ? 'Procesando...' : 'Analizar'}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Console */}
-        <ConsoleWindow
-          lines={consoleLines}
-          visible={consoleVisible}
-          onClose={() => setConsoleVisible(false)}
-        />
-
-        {preview.length > 0 && !consoleVisible && (
-          <div className="panel">
-            <div className="panel-header">Vista previa (primeras filas)</div>
-            <div className="overflow-x-auto text-xs">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-200">
-                    {preview[0].map((h, i) => <th key={i} className="border border-gray-300 px-2 py-1 text-left">{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.slice(1).map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-2 py-1">{cell}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {summary && (
-          <div className="panel">
-            <div className="panel-header">Proyecci\u00f3n de costos (10,000 rese\u00f1as/d\u00eda)</div>
-            <div className="grid grid-cols-3 gap-3 text-center text-xs mb-3">
-              <div className="bg-red-50 rounded p-2">
-                <div className="text-lg font-bold text-red-700">${summary.daily_cost_original_10k.toFixed(2)}</div>
-                <div className="text-gray-600">Costo diario (original)</div>
-              </div>
-              <div className="bg-green-50 rounded p-2">
-                <div className="text-lg font-bold text-green-700">${summary.daily_cost_en_10k.toFixed(2)}</div>
-                <div className="text-gray-600">Costo diario (ingl\u00e9s)</div>
-              </div>
-              <div className="bg-blue-50 rounded p-2">
-                <div className="text-lg font-bold text-[var(--aero-end)]">${summary.daily_savings_10k.toFixed(2)}</div>
-                <div className="text-gray-600">Ahorro diario</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 text-center text-xs">
-              <div>
-                <div className="text-base font-bold">${summary.weekly_savings_10k.toFixed(2)}</div>
-                <div className="text-gray-500">Ahorro semanal</div>
-              </div>
-              <div>
-                <div className="text-base font-bold">${summary.monthly_savings_10k.toFixed(2)}</div>
-                <div className="text-gray-500">Ahorro mensual</div>
-              </div>
-              <div>
-                <div className="text-base font-bold capitalize">{summary.best_global_lang === 'en' ? 'Ingl\u00e9s' : 'Espa\u00f1ol'}</div>
-                <div className="text-gray-500">Mejor idioma global</div>
-              </div>
-            </div>
-            <div className="text-xs text-gray-500 mt-2">
-              {summary.total_reviews} rese\u00f1as &middot; prom. {summary.avg_tokens_original} tok/res (esp) &middot; {summary.avg_tokens_en} tok/res (eng)
-            </div>
-          </div>
-        )}
-
-        {results.length > 0 && (
-          <div className="panel">
-            <div className="panel-header flex items-center justify-between">
-              <span>Resultados ({results.length} estados de intención por producto)</span>
-              <Button onClick={handleDownloadExcel}>Descargar Excel</Button>
-            </div>
-            <div className="overflow-x-auto overflow-y-auto max-h-80 text-xs">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-200 sticky top-0">
-                    <th className="border border-gray-300 px-2 py-1 text-left">Producto</th>
-                    <th className="border border-gray-300 px-2 py-1 text-center w-24">Intención ⭐</th>
-                    <th className="border border-gray-300 px-2 py-1 text-left">Reseña Resumen (ES)</th>
-                    <th className="border border-gray-300 px-2 py-1 text-left">Traducción Resumen (EN)</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16 text-center">Cant.</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16 text-right">Tok. ES</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16 text-right">Tok. EN</th>
-                    <th className="border border-gray-300 px-2 py-1 w-16 text-center">Mejor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r, i) => {
-                    const best = r.best_lang === 'en' ? 'Inglés' : r.best_lang === 'es' ? 'Español' : '='
-                    const starText = '⭐'.repeat(r.stars || 3)
-                    return (
-                      <tr key={i} className={i % 2 ? 'bg-gray-100' : ''}>
-                        <td className="border border-gray-300 px-2 py-1 font-semibold">{r.product_name || 'General'}</td>
-                        <td className="border border-gray-300 px-2 py-1 text-center font-bold text-amber-600">{starText} ({r.stars || 3}/5)</td>
-                        <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.review}>{r.review}</td>
-                        <td className="border border-gray-300 px-2 py-1 max-w-xs truncate" title={r.text_en}>{r.text_en}</td>
-                        <td className="border border-gray-300 px-2 py-1 text-center font-bold text-blue-600">{r.frequency || 1}</td>
-                        <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_original}</td>
-                        <td className="border border-gray-300 px-2 py-1 text-right">{r.tokens_en}</td>
-                        <td className={`border border-gray-300 px-2 py-1 font-semibold text-center ${r.best_lang === 'en' ? 'text-green-700' : r.best_lang === 'es' ? 'text-red-700' : ''}`}>{best}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+    <div className="space-y-6">
+      {/* Hero header */}
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold tracking-tight">Análisis de Reseñas</h1>
+        <p className="text-sm text-[var(--text-muted)]">
+          Carga un Excel de reseñas y traduce automáticamente al inglés con CTranslate2 para medir el ahorro de tokens.
+        </p>
       </div>
+
+      {/* Mode tabs */}
+      <UploadTabs mode={mode} onChange={handleModeChange} />
+
+      {/* Upload card */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">{mode === 'file' ? 'Cargar archivo Excel' : 'Procesar carpeta local'}</span>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text-muted)]">
+            <input
+              type="checkbox"
+              checked={optimize}
+              onChange={(e) => setOptimize(e.target.checked)}
+              className="h-4 w-4 accent-indigo-500"
+            />
+            Optimizar tokens
+          </label>
+        </div>
+        <div className="card-body space-y-4">
+          {mode === 'file' ? (
+            <FileUploadZone
+              fileRef={fileRef}
+              fileName={fileName}
+              dragOver={dragOver}
+              setDragOver={setDragOver}
+              preview={preview}
+              showPreview={!consoleVisible}
+              onFileChange={handleFileChange}
+              onFileDrop={handleFileDrop}
+            />
+          ) : (
+            <FolderUploadZone
+              folderRef={folderRef}
+              folderName={folderName}
+              folderFiles={folderFiles}
+              dragOver={dragOver}
+              setDragOver={setDragOver}
+              onFolderChange={handleFolderChange}
+              onFolderDrop={handleFolderDrop}
+            />
+          )}
+
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={handleProcess}
+              disabled={loading || !canProcess}
+            >
+              {loading ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <span className="material-icons text-base">play_arrow</span>
+                  Analizar
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Terminal */}
+      <ConsoleWindow
+        lines={consoleLines}
+        visible={consoleVisible}
+        onClose={() => setConsoleVisible(false)}
+      />
+
+      {/* Results */}
+      {summary && <KpiGrid summary={summary} clusterCount={results.length} />}
+      {summary && <CostComparison summary={summary} />}
+      <ProductRatings ratings={productRatings} />
+      <ResultsTable results={results} onDownload={handleDownload} />
     </div>
   )
 }

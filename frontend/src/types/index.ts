@@ -1,36 +1,6 @@
-export interface TokenVariant {
-  text: string
-  language: string
-  token_count: number
-}
-
-export interface Classification {
-  error_type: string
-  component: string
-}
-
-export interface AnalyzeResponse {
-  original: TokenVariant
-  translated: TokenVariant
-  spanglish: TokenVariant
-  classification: Classification | null
-  engine_used: string
-}
-
-export interface ProjectionResponse {
-  daily_token_diff: number
-  monthly_token_diff: number
-  monthly_savings_usd: number
-}
-
 export interface ConfigStatus {
-  ollama_available: boolean
-  deepl_configured: boolean
-}
-
-export interface BatchClassification {
-  error_type: string
-  component: string
+  engine: string
+  model_ready: boolean
 }
 
 export interface BatchResult {
@@ -42,7 +12,10 @@ export interface BatchResult {
   cost_en_usd: number
   best_lang: string
   justification: string
-  classification?: BatchClassification
+  classification?: {
+    error_type: string
+    component: string
+  } | null
   frequency?: number
   product_name?: string
   stars?: number
